@@ -4,6 +4,8 @@ import { canManageSellerRegistry } from "@/lib/authz";
 import { prisma } from "@/lib/prisma";
 import { loadStoreContext } from "@/lib/stores";
 import { AppShell } from "@/app/shell";
+import { LoadingSwap } from "@/app/app-loading";
+import { RowsSkeleton } from "@/app/skeletons";
 import { ADMIN_SELLER_SELECT } from "@/app/api/admin/sellers/route";
 import { SellersAdmin } from "./sellers-admin";
 
@@ -38,11 +40,14 @@ export default async function SellersAdminPage() {
 
   return (
     <AppShell user={session.user} section="sellers" breadcrumb="Vendedores">
-      <SellersAdmin
-        initialSellers={initialSellers}
-        stores={store.stores}
-        activeStoreId={store.active?.id ?? null}
-      />
+      <LoadingSwap skeleton={<RowsSkeleton rows={5} />}>
+        <SellersAdmin
+          key={store.active?.id ?? "sem-loja"}
+          initialSellers={initialSellers}
+          stores={store.stores}
+          activeStoreId={store.active?.id ?? null}
+        />
+      </LoadingSwap>
     </AppShell>
   );
 }

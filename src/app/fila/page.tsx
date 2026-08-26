@@ -5,6 +5,8 @@ import { formatOperationDate } from "@/lib/operation-day";
 import { prisma } from "@/lib/prisma";
 import { activeStoreId } from "@/lib/stores";
 import { AppShell } from "@/app/shell";
+import { LoadingSwap } from "@/app/app-loading";
+import { QueueSkeleton } from "@/app/skeletons";
 import { QueueBoard } from "./queue-board";
 
 export const dynamic = "force-dynamic";
@@ -25,7 +27,16 @@ export default async function QueuePage() {
 
   return (
     <AppShell user={session.user} section="queue" breadcrumb="Fila de vendedores" queueCount={queued}>
-      <QueueBoard user={session.user} today={formatOperationDate(new Date())} initialSellers={sellers} />
+      <LoadingSwap skeleton={<QueueSkeleton />}>
+        {/* `key` pela loja: o quadro guarda a lista em estado próprio, e sem
+            remontar ele continuaria mostrando os vendedores da loja anterior. */}
+        <QueueBoard
+          key={storeId ?? "sem-loja"}
+          user={session.user}
+          today={formatOperationDate(new Date())}
+          initialSellers={sellers}
+        />
+      </LoadingSwap>
     </AppShell>
   );
 }

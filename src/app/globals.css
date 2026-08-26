@@ -361,3 +361,25 @@ a.primary-button, a.row-action { text-decoration: none; }
   .store-switcher .workspace-switcher svg { margin-left: 0; }
   .store-dropdown { right: auto; width: 190px; }
 }
+
+/* Carregamento: esqueletos e indicação de navegação */
+.skeleton { background: #ece9e3; background-image: linear-gradient(90deg, #ece9e3 0%, #f6f4f0 50%, #ece9e3 100%); background-size: 200% 100%; animation: skeleton-shimmer 1.3s ease-in-out infinite; border-radius: 5px; display: block; }
+@keyframes skeleton-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+.skeleton + .skeleton { margin-top: 9px; }
+.skeleton-avatar { border-radius: 50%; flex-shrink: 0; height: 30px; width: 30px; }
+.skeleton-avatar.large { height: 38px; width: 38px; }
+.metric-card .skeleton:first-child { margin-top: 2px; }
+.queue-card.skeleton-card, .queue-card.skeleton-card:hover { border-color: #eae7e2; box-shadow: none; transform: none; }
+.skeleton-rows { margin-top: 22px; }
+.skeleton-rows .admin-row { pointer-events: none; }
+
+/* Menu lateral: ponto pulsando no item clicado enquanto a próxima tela não vem. */
+.nav-hint { display: none; }
+.nav-hint.is-pending { animation: nav-pulse .9s ease-in-out infinite; background: var(--orange); border-radius: 50%; display: block; flex-shrink: 0; height: 6px; margin-left: auto; width: 6px; }
+@keyframes nav-pulse { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
+.store-spinner { animation: store-spin 1s linear infinite; color: var(--orange); flex-shrink: 0; }
+@keyframes store-spin { to { transform: rotate(360deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton, .nav-hint.is-pending, .store-spinner { animation: none; }
+}

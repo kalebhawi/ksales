@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { Check, ChevronDown, Store } from "lucide-react";
+import { Check, ChevronDown, Loader2, Store } from "lucide-react";
 import { apiUrl } from "@/lib/base-path";
 import type { StoreOption } from "@/lib/store-rules";
+import { useAppLoading } from "./app-loading";
 
 /**
  * Loja aberta na tela. Trocar aqui muda o que a visão geral, a fila e o
@@ -23,7 +23,7 @@ export function StoreSwitcher({
   activeStoreId: string | null;
   canSwitch: boolean;
 }) {
-  const router = useRouter();
+  const { loading, reload, setLoading } = useAppLoading();
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState(false);
@@ -53,6 +53,9 @@ export function StoreSwitcher({
 
     setPending(storeId);
     setError(false);
+    // Liga o esqueleto já na ida: o cookie ainda nem foi gravado, mas a tela
+    // precisa dizer que a troca começou.
+    setLoading(true);
 
     try {
       const response = await fetch(apiUrl("/lojas/ativa"), {
@@ -63,15 +66,17 @@ export function StoreSwitcher({
 
       if (!response.ok) {
         setError(true);
+        setLoading(false);
         return;
       }
 
       setOpen(false);
-      // `refresh` e não `reload`: os dados vêm do servidor a cada render, então
-      // basta refazer a requisição da rota atual.
-      router.refresh();
+      // Recarrega os dados do servidor da rota atual. O esqueleto só sai quando
+      // eles chegam — quem controla isso é a transição, dentro de `reload`.
+      reload();
     } catch {
       setError(true);
+      setLoading(false);
     } finally {
       setPending(null);
     }
@@ -102,7 +107,7 @@ export function StoreSwitcher({
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
       >
-        <span className="workspace-dot" />
+        {loading ? <Loader2 className="store-spinner" size={13} /> : <span className="workspace-dot" />}
         <span className="store-name">{active.name}</span>
         <ChevronDown size={14} />
       </button>
@@ -118,7 +123,7 @@ export function StoreSwitcher({
               key={store.id}
               type="button"
               className={store.id === activeStoreId ? "current" : ""}
-              disabled={pending !== null}
+              disabled={pending !== null || loading}
               onClick={() => void select(store.id)}
             >
               <Store size={15} /> {store.name}

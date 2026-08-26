@@ -5,6 +5,8 @@ import { formatOperationDate, operationDateParts } from "@/lib/operation-day";
 import { parsePeriod, resolvePeriod, toYmd } from "@/lib/period";
 import { activeStoreId } from "@/lib/stores";
 import { Dashboard } from "./dashboard";
+import { LoadingSwap } from "./app-loading";
+import { DashboardSkeleton } from "./skeletons";
 import { AppShell } from "./shell";
 
 export const dynamic = "force-dynamic";
@@ -30,15 +32,17 @@ export default async function Home({ searchParams }: PageProps<"/">) {
 
   return (
     <AppShell user={session.user} section="overview" breadcrumb="Visão geral" queueCount={metrics.queued}>
-      <Dashboard
-        user={session.user}
-        today={formatOperationDate(now)}
-        todayYmd={toYmd(operationDateParts(now))}
-        period={period}
-        periodError={error}
-        metrics={metrics}
-        sellers={sellers}
-      />
+      <LoadingSwap skeleton={<DashboardSkeleton />}>
+        <Dashboard
+          user={session.user}
+          today={formatOperationDate(now)}
+          todayYmd={toYmd(operationDateParts(now))}
+          period={period}
+          periodError={error}
+          metrics={metrics}
+          sellers={sellers}
+        />
+      </LoadingSwap>
     </AppShell>
   );
 }

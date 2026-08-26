@@ -2,6 +2,8 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { Bell, ChevronRight, FileClock, LayoutDashboard, ListOrdered, ShieldCheck, Store, UserCircle, Users } from "lucide-react";
 import { AccountMenu } from "./account-menu";
+import { AppLoadingProvider } from "./app-loading";
+import { NavHint } from "./nav-hint";
 import type { SessionUser } from "@/lib/auth";
 import { ROLE_LABELS } from "@/lib/authz";
 import { initialsOf } from "@/lib/format";
@@ -29,7 +31,8 @@ export async function AppShell({
   const [photo, storeContext] = await Promise.all([loadSessionPhoto(user), loadStoreContext(user)]);
 
   return (
-    <div className="app-shell">
+    <AppLoadingProvider>
+      <div className="app-shell">
       <aside className="sidebar">
         <div className="brand">
           <span className="brand-mark">k</span>
@@ -45,36 +48,43 @@ export async function AppShell({
           {user.canViewDashboard && (
             <Link className={`nav-item ${section === "overview" ? "active" : ""}`} href="/">
               <LayoutDashboard size={18} /> Visão geral
+              <NavHint />
             </Link>
           )}
           <Link className={`nav-item ${section === "queue" ? "active" : ""}`} href="/fila">
             <ListOrdered size={18} /> Fila de vendedores
             {queueCount !== undefined && <span className="nav-count">{queueCount}</span>}
+            <NavHint />
           </Link>
 
           <p className="nav-label nav-label-spaced">Gerenciar</p>
           {user.canManageRegistry && (
             <Link className={`nav-item ${section === "sellers" ? "active" : ""}`} href="/admin/vendedores">
               <Users size={18} /> Vendedores
+              <NavHint />
             </Link>
           )}
           {user.canManageSupervisors && (
             <Link className={`nav-item ${section === "supervisors" ? "active" : ""}`} href="/admin/supervisores">
               <ShieldCheck size={18} /> Supervisores
+              <NavHint />
             </Link>
           )}
           {user.canManageStores && (
             <Link className={`nav-item ${section === "stores" ? "active" : ""}`} href="/admin/lojas">
               <Store size={18} /> Lojas
+              <NavHint />
             </Link>
           )}
           {user.canDownloadAuditLog && (
             <Link className={`nav-item ${section === "audit" ? "active" : ""}`} href="/admin/auditoria">
               <FileClock size={18} /> Auditoria
+              <NavHint />
             </Link>
           )}
           <Link className={`nav-item ${section === "profile" ? "active" : ""}`} href="/perfil">
             <UserCircle size={18} /> Meu perfil
+            <NavHint />
           </Link>
         </nav>
         <div className="sidebar-footer">
@@ -104,7 +114,8 @@ export async function AppShell({
         </header>
         <div className="content-wrap">{children}</div>
       </main>
-    </div>
+      </div>
+    </AppLoadingProvider>
   );
 }
 
