@@ -34,12 +34,19 @@ async function main() {
 
   const admin = await prisma.role.findUniqueOrThrow({ where: { name: ADMIN_ROLE } });
 
-  for (const [name, badgeNumber, level, description] of sellers) {
-    await prisma.seller.upsert({
-      where: { badgeNumber },
-      update: { name, level, description },
-      create: { name, badgeNumber, level, description },
-    });
+  // Os vendedores acima são fixture de desenvolvimento. Em produção a equipe é
+  // cadastrada pela tela, e criar "Marina Costa" no primeiro dia da loja seria
+  // lixo que alguém teria de desativar na mão.
+  if (process.env.NODE_ENV === "production") {
+    console.log("Produção: vendedores de exemplo não foram criados.");
+  } else {
+    for (const [name, badgeNumber, level, description] of sellers) {
+      await prisma.seller.upsert({
+        where: { badgeNumber },
+        update: { name, level, description },
+        create: { name, badgeNumber, level, description },
+      });
+    }
   }
 
   const email = (process.env.SEED_ADMIN_EMAIL ?? "admin@kalebhawi.com.br").toLowerCase();
