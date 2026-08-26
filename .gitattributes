@@ -1,0 +1,4 @@
+* text=auto eol=lf
+
+# Scripts executados na VPS: CRLF quebra o shebang ("bad interpreter").
+*.sh text eol=lf

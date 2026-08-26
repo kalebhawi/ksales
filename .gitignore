@@ -2,6 +2,7 @@
 
 # dependencies
 /node_modules
+/src/generated/
 /.pnp
 .pnp.*
 .yarn/*
@@ -32,6 +33,7 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
 
 # vercel
 .vercel
@@ -39,3 +41,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# trilha de auditoria (dados de operação, nunca versionados)
+/audit-logs/
+
+# configuração pessoal do editor (inclui auto-aprovação de comandos)
+/.vscode/

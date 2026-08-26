@@ -1,0 +1,179 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/// Sem "disponível": vendedor está na fila, em atendimento ou fora do turno.
+/// Cadastro novo entra fora do turno e alguém o coloca na fila.
+enum SellerQueueStatus {
+  QUEUED
+  IN_SERVICE
+  OFF_SHIFT
+}
+
+enum AtendimentoStatus {
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum ServiceAction {
+  SALE_CONVERTED
+  SALE_NOT_CONVERTED
+  EXCHANGE
+  OTHER
+}
+
+enum QueueAction {
+  ENTERED_QUEUE
+  STARTED_SERVICE
+  REMOVED_FROM_QUEUE
+  RETURNED_TO_QUEUE
+  ENDED_SHIFT
+}
+
+model User {
+  id           String     @id @default(cuid())
+  email        String     @unique
+  passwordHash String     @map("password_hash")
+  name         String
+  active       Boolean    @default(true)
+  // Senha provisória definida por um administrador: o usuário é obrigado a
+  // trocá-la antes de usar qualquer outra tela.
+  mustChangePassword Boolean @default(false) @map("must_change_password")
+  /// Foto e descrição de quem não é vendedor. Vendedor usa as do cadastro.
+  description  String?
+  photoUrl     String?    @map("photo_url")
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+  roles        UserRole[]
+  seller       Seller?
+  sessions     Session[]
+  photo        UserPhoto?
+
+  @@map("users")
+}
+
+model Role {
+  id          String     @id @default(cuid())
+  name        String     @unique
+  description String?
+  createdAt   DateTime   @default(now()) @map("created_at")
+  users       UserRole[]
+
+  @@map("roles")
+}
+
+model UserRole {
+  userId     String   @map("user_id")
+  roleId     String   @map("role_id")
+  assignedAt DateTime @default(now()) @map("assigned_at")
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role       Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+  @@index([roleId])
+  @@map("user_roles")
+}
+
+model Seller {
+  id             String            @id @default(cuid())
+  userId         String?           @unique @map("user_id")
+  name           String
+  badgeNumber    String            @unique @map("badge_number")
+  level          Int               @default(1)
+  photoUrl       String?           @map("photo_url")
+  description    String?
+  queueStatus    SellerQueueStatus @default(OFF_SHIFT) @map("queue_status")
+  queuePosition  Int?              @map("queue_position")
+  active         Boolean           @default(true)
+  createdAt      DateTime          @default(now()) @map("created_at")
+  updatedAt      DateTime          @updatedAt @map("updated_at")
+  user           User?             @relation(fields: [userId], references: [id], onDelete: SetNull)
+  services       Atendimento[]
+  queueEvents    QueueEvent[]
+  photo          SellerPhoto?
+
+  @@index([queueStatus, queuePosition])
+  @@index([active])
+  @@map("sellers")
+}
+
+model Atendimento {
+  id           String        @id @default(cuid())
+  sellerId     String        @map("seller_id")
+  status       AtendimentoStatus @default(IN_PROGRESS)
+  action       ServiceAction?
+  startedAt    DateTime      @default(now()) @map("started_at")
+  concludedAt  DateTime?     @map("concluded_at")
+  initiatedBy  String?       @map("initiated_by")
+  concludedBy  String?       @map("concluded_by")
+  notes        String?
+  metadata     Json?
+  createdAt    DateTime      @default(now()) @map("created_at")
+  updatedAt    DateTime      @updatedAt @map("updated_at")
+  seller       Seller        @relation(fields: [sellerId], references: [id], onDelete: Restrict)
+
+  @@index([sellerId, status])
+  @@index([startedAt])
+  @@map("status_atendimento")
+}
+
+model QueueEvent {
+  id          String      @id @default(cuid())
+  sellerId    String      @map("seller_id")
+  action      QueueAction
+  reason      String?
+  notes       String?
+  performedBy String?     @map("performed_by")
+  createdAt   DateTime    @default(now()) @map("created_at")
+  seller      Seller      @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+
+  @@index([sellerId, createdAt])
+  @@map("queue_events")
+}
+
+model Session {
+  id         String   @id @default(cuid())
+  tokenHash  String   @unique @map("token_hash")
+  userId     String   @map("user_id")
+  expiresAt  DateTime @map("expires_at")
+  lastUsedAt DateTime @default(now()) @map("last_used_at")
+  createdAt  DateTime @default(now()) @map("created_at")
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+/// Foto do vendedor guardada no banco. Tabela separada de propósito: `sellers`
+/// é lido em lista a cada render da fila, e um `Bytes` ali seria carregado
+/// junto em toda consulta que não usasse `select` explícito.
+/// Foto de quem não tem cadastro de vendedor. Tabela separada pelo mesmo motivo
+/// de `seller_photos`: `users` é lido para montar a sessão a cada requisição.
+model UserPhoto {
+  userId    String   @id @map("user_id")
+  mimeType  String   @map("mime_type")
+  byteSize  Int      @map("byte_size")
+  data      Bytes
+  updatedAt DateTime @updatedAt @map("updated_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_photos")
+}
+
+model SellerPhoto {
+  sellerId  String   @id @map("seller_id")
+  mimeType  String   @map("mime_type")
+  byteSize  Int      @map("byte_size")
+  data      Bytes
+  updatedAt DateTime @updatedAt @map("updated_at")
+  seller    Seller   @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+
+  @@map("seller_photos")
+}
