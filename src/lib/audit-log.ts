@@ -12,6 +12,7 @@ import {
   type AuditActor,
   type AuditEntry,
   type AuditPageResult,
+  type AuditStore,
   type AuditTarget,
 } from "@/lib/audit-events";
 import { formatOperationTimestamp, operationDateParts } from "@/lib/operation-day";
@@ -42,6 +43,8 @@ export type AuditInput = {
   action: AuditAction;
   actor: AuditActor;
   target?: AuditTarget;
+  /** Loja do fato. Fica na linha para a trilha responder "onde", não só "quem". */
+  store?: AuditStore;
   details?: Record<string, unknown>;
   /** Instante do evento; o padrão é agora. */
   at?: Date;
@@ -55,13 +58,21 @@ export type AuditInput = {
  * devolver erro faria o usuário repetir uma operação que já valeu. A falha vai
  * para o log do servidor, que é onde ela precisa ser vista.
  */
-export async function recordAudit({ action, actor, target = null, details = {}, at = new Date() }: AuditInput) {
+export async function recordAudit({
+  action,
+  actor,
+  target = null,
+  store = null,
+  details = {},
+  at = new Date(),
+}: AuditInput) {
   const entry: AuditEntry = {
     timestamp: formatOperationTimestamp(at),
     action,
     label: AUDIT_ACTION_LABELS[action],
     actor,
     target,
+    store,
     details,
   };
 
@@ -146,6 +157,8 @@ export type AuditQueryInput = {
   to?: string | null;
   search?: string;
   action?: AuditAction | null;
+  /** Id da loja; `null` não filtra. */
+  store?: string | null;
   page?: number;
   perPage?: number;
 };
@@ -159,6 +172,7 @@ export type AuditEntriesResult = AuditPageResult<AuditEntry> & {
   /** Linhas que não puderam ser lidas; aparecem como aviso, não somem calado. */
   corrupted: number;
   actions: { action: AuditAction; label: string; count: number }[];
+  stores: { id: string; name: string; count: number }[];
 };
 
 const EMPTY_RESULT: AuditEntriesResult = {
@@ -173,6 +187,7 @@ const EMPTY_RESULT: AuditEntriesResult = {
   daysLeftOut: 0,
   corrupted: 0,
   actions: [],
+  stores: [],
 };
 
 /**
@@ -219,8 +234,18 @@ export async function queryAuditEntries(input: AuditQueryInput = {}): Promise<Au
   const byAction = new Map<AuditAction, number>();
   for (const entry of entries) byAction.set(entry.action, (byAction.get(entry.action) ?? 0) + 1);
 
+  // As lojas saem das próprias linhas, não do banco: uma loja apagada continua
+  // aparecendo no filtro enquanto houver rastro dela na trilha.
+  const byStore = new Map<string, { name: string; count: number }>();
+  for (const entry of entries) {
+    if (!entry.store) continue;
+    const current = byStore.get(entry.store.id);
+    byStore.set(entry.store.id, { name: entry.store.name, count: (current?.count ?? 0) + 1 });
+  }
+
   const filtered = entries
     .filter((entry) => !input.action || entry.action === input.action)
+    .filter((entry) => !input.store || entry.store?.id === input.store)
     .filter((entry) => matchesAuditSearch(entry, input.search ?? ""));
 
   return {
@@ -233,5 +258,8 @@ export async function queryAuditEntries(input: AuditQueryInput = {}): Promise<Au
     actions: [...byAction.entries()]
       .map(([action, count]) => ({ action, label: AUDIT_ACTION_LABELS[action], count }))
       .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, "pt-BR")),
+    stores: [...byStore.entries()]
+      .map(([id, { name, count }]) => ({ id, name, count }))
+      .sort((a, b) => a.name.localeCompare(b.name, "pt-BR")),
   };
 }

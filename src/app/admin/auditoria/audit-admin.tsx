@@ -35,6 +35,7 @@ export type AuditEntries = {
   daysLeftOut: number;
   corrupted: number;
   actions: { action: AuditAction; label: string; count: number }[];
+  stores: { id: string; name: string; count: number }[];
 };
 
 const WEEKDAYS = ["domingo", "segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-feira", "sábado"];
@@ -62,6 +63,7 @@ export function AuditAdmin({
   const [to, setTo] = useState("");
   const [search, setSearch] = useState("");
   const [action, setAction] = useState("");
+  const [store, setStore] = useState("");
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState<number>(DEFAULT_AUDIT_PAGE_SIZE);
 
@@ -87,6 +89,7 @@ export function AuditAdmin({
       if (end) query.set("ate", end);
       if (search.trim()) query.set("busca", search.trim());
       if (action) query.set("acao", action);
+      if (store) query.set("loja", store);
 
       setLoading(true);
 
@@ -111,7 +114,7 @@ export function AuditAdmin({
       clearTimeout(timer);
       controller.abort();
     };
-  }, [start, end, search, action, page, perPage, reloads]);
+  }, [start, end, search, action, store, page, perPage, reloads]);
 
   /** Qualquer mudança de filtro recomeça na primeira página. */
   function changeFilter(apply: () => void) {
@@ -143,7 +146,8 @@ export function AuditAdmin({
           <p className="eyebrow">SEGURANÇA</p>
           <h1>Auditoria</h1>
           <p className="heading-subtitle">
-            Um arquivo por dia de operação, em modo append. Cada linha traz o horário, quem executou e sobre quem.
+            Um arquivo por dia de operação, em modo append. Cada linha traz o horário, a loja, quem executou e sobre
+            quem.
           </p>
         </div>
       </section>
@@ -185,6 +189,17 @@ export function AuditAdmin({
               ))}
             </select>
           </label>
+          <label className="audit-action-filter">
+            Loja
+            <select value={store} onChange={(event) => changeFilter(() => setStore(event.target.value))}>
+              <option value="">Todas</option>
+              {entries.stores.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.name} ({option.count})
+                </option>
+              ))}
+            </select>
+          </label>
           <label className="audit-search">
             Buscar
             <span className="search-field">
@@ -197,7 +212,7 @@ export function AuditAdmin({
               />
             </span>
           </label>
-          {(from || to || search || action) && (
+          {(from || to || search || action || store) && (
             <button
               type="button"
               className="ghost-button"
@@ -207,6 +222,7 @@ export function AuditAdmin({
                   setTo("");
                   setSearch("");
                   setAction("");
+                  setStore("");
                 })
               }
             >
@@ -264,6 +280,7 @@ export function AuditAdmin({
             <tr>
               <th>Horário</th>
               <th>Ação</th>
+              <th>Loja</th>
               <th>Quem executou</th>
               <th>Sobre quem</th>
               <th>Detalhes</th>
@@ -278,7 +295,7 @@ export function AuditAdmin({
 
         {entries.items.length === 0 && (
           <div className="empty-state">
-            {entries.total === 0 && !search && !action
+            {entries.total === 0 && !search && !action && !store
               ? "Nenhuma ação registrada neste período."
               : "Nenhum registro com esse filtro."}
           </div>
@@ -383,6 +400,9 @@ function AuditRow({ entry }: { entry: AuditEntry }) {
       </td>
       <td data-label="Ação">
         <span className={`audit-tag ${AUDIT_ACTION_GROUP[entry.action]}`}>{entry.label}</span>
+      </td>
+      <td data-label="Loja">
+        {entry.store ? <span className="audit-store">{entry.store.name}</span> : <span className="audit-id">—</span>}
       </td>
       <td data-label="Quem executou">
         {entry.actor ? (

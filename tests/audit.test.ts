@@ -171,6 +171,7 @@ describe("auditoria: busca e paginação", () => {
     label: "Entrada em atendimento",
     actor: { id: "u1", name: "Admin", role: "admin" },
     target: { id: "s1", name: "João Pedro" },
+    store: { id: "loja-1", name: "Loja 1" },
     details: { motivo: "encerrar_dia" },
     ...over,
   });

@@ -4,6 +4,7 @@ import { canViewDashboard } from "@/lib/authz";
 import { loadDashboardMetrics } from "@/lib/dashboard-data";
 import { forbidden, passwordChangeRequired, unauthorized } from "@/lib/http";
 import { parsePeriod, resolvePeriod } from "@/lib/period";
+import { activeStoreId } from "@/lib/stores";
 
 export const dynamic = "force-dynamic";
 
@@ -19,5 +20,7 @@ export async function GET(request: Request) {
   const { spec } = parsePeriod(Object.fromEntries(new URL(request.url).searchParams));
   const period = resolvePeriod(spec, new Date());
 
-  return NextResponse.json(await loadDashboardMetrics(period.range, period.previous));
+  return NextResponse.json(
+    await loadDashboardMetrics(period.range, period.previous, await activeStoreId(session.user)),
+  );
 }

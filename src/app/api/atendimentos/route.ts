@@ -31,15 +31,22 @@ export async function PATCH(request: Request) {
     return badRequest("Descreva o motivo quando selecionar “Outro”.");
   }
 
-  if (!canManageSeller(session.actor, sellerId)) return forbidden();
-
   const atendimento = await prisma.atendimento.findFirst({
     where: { sellerId, status: "IN_PROGRESS" },
     orderBy: { startedAt: "desc" },
-    select: { id: true, startedAt: true, seller: { select: { name: true } } },
+    select: {
+      id: true,
+      startedAt: true,
+      storeId: true,
+      seller: { select: { name: true, store: { select: { id: true, name: true } } } },
+    },
   });
 
   if (!atendimento) return notFound("Nenhum atendimento em andamento encontrado.");
+
+  // A checagem vem depois da consulta porque depende da loja do atendimento:
+  // concluir o atendimento de outra loja é tão proibido quanto abrir um.
+  if (!canManageSeller(session.actor, sellerId, atendimento.storeId)) return forbidden();
 
   const concludedAt = new Date();
 
@@ -60,7 +67,7 @@ export async function PATCH(request: Request) {
     // Para sair do rodízio (intervalo, fim de turno) existe a operação
     // `remove` em /api/sellers, que exige motivo.
     const last = await tx.seller.findFirst({
-      where: { queueStatus: "QUEUED" },
+      where: { storeId: atendimento.storeId, queueStatus: "QUEUED" },
       orderBy: { queuePosition: "desc" },
       select: { queuePosition: true },
     });
@@ -87,6 +94,7 @@ export async function PATCH(request: Request) {
 
   const actor = auditActor(session.user);
   const target = { id: sellerId, name: atendimento.seller.name };
+  const store = atendimento.seller.store;
 
   // Duas linhas porque são dois fatos distintos para quem audita: como o
   // atendimento terminou, e onde o vendedor voltou a ficar na fila.
@@ -94,6 +102,7 @@ export async function PATCH(request: Request) {
     action: "COMPLETED_SERVICE",
     actor,
     target,
+    store,
     at: concludedAt,
     details: {
       status: body.action as Action,
@@ -107,6 +116,7 @@ export async function PATCH(request: Request) {
     action: "RETURNED_TO_QUEUE",
     actor,
     target,
+    store,
     details: { posicaoNaFila: position, origem: "conclusao_de_atendimento" },
   });
 

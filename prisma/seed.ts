@@ -34,6 +34,15 @@ async function main() {
 
   const admin = await prisma.role.findUniqueOrThrow({ where: { name: ADMIN_ROLE } });
 
+  // Toda operação precisa de ao menos uma loja: fila, atendimento e cadastro
+  // pertencem a uma. O id é o mesmo da migration `0009_stores`, então rodar o
+  // seed num banco já migrado reaproveita a loja em vez de criar uma segunda.
+  const store = await prisma.store.upsert({
+    where: { id: "store_loja_1" },
+    update: {},
+    create: { id: "store_loja_1", name: "Loja 1" },
+  });
+
   // Os vendedores acima são fixture de desenvolvimento. Em produção a equipe é
   // cadastrada pela tela, e criar "Marina Costa" no primeiro dia da loja seria
   // lixo que alguém teria de desativar na mão.
@@ -44,7 +53,7 @@ async function main() {
       await prisma.seller.upsert({
         where: { badgeNumber },
         update: { name, level, description },
-        create: { name, badgeNumber, level, description },
+        create: { name, badgeNumber, level, description, storeId: store.id },
       });
     }
   }

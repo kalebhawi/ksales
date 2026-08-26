@@ -42,6 +42,7 @@ export async function GET(request: Request) {
       from,
       to,
       action: (action as AuditAction) || null,
+      store: params.get("loja") || null,
       search: params.get("busca") ?? "",
       page: Number.isFinite(page) ? page : 1,
       perPage: isAuditPageSize(perPage) ? Number(perPage) : DEFAULT_AUDIT_PAGE_SIZE,

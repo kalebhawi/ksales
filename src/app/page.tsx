@@ -3,6 +3,7 @@ import { getActor } from "@/lib/auth";
 import { loadDashboardMetrics, loadDashboardSellers } from "@/lib/dashboard-data";
 import { formatOperationDate, operationDateParts } from "@/lib/operation-day";
 import { parsePeriod, resolvePeriod, toYmd } from "@/lib/period";
+import { activeStoreId } from "@/lib/stores";
 import { Dashboard } from "./dashboard";
 import { AppShell } from "./shell";
 
@@ -20,9 +21,11 @@ export default async function Home({ searchParams }: PageProps<"/">) {
   const { spec, error } = parsePeriod(await searchParams);
   const period = resolvePeriod(spec, now);
 
+  const storeId = await activeStoreId(session.user);
+
   const [sellers, metrics] = await Promise.all([
-    loadDashboardSellers(session.actor, period.range),
-    loadDashboardMetrics(period.range, period.previous),
+    loadDashboardSellers(session.actor, period.range, storeId),
+    loadDashboardMetrics(period.range, period.previous, storeId),
   ]);
 
   return (

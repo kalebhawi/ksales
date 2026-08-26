@@ -2,6 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { getActor } from "@/lib/auth";
 import { canManageSellerRegistry } from "@/lib/authz";
 import { prisma } from "@/lib/prisma";
+import { loadStoreContext } from "@/lib/stores";
 import { AppShell } from "@/app/shell";
 import { ADMIN_SELLER_SELECT } from "@/app/api/admin/sellers/route";
 import { SellersAdmin } from "./sellers-admin";
@@ -16,10 +17,17 @@ export default async function SellersAdminPage() {
   if (session.user.mustChangePassword) redirect("/trocar-senha");
   if (!canManageSellerRegistry(session.actor)) notFound();
 
-  const sellers = await prisma.seller.findMany({
-    orderBy: [{ active: "desc" }, { name: "asc" }],
-    select: ADMIN_SELLER_SELECT,
-  });
+  // O cadastro é o da loja aberta na tela: supervisor de uma loja não vê nem
+  // edita gente de outra.
+  const store = await loadStoreContext(session.user);
+
+  const sellers = store.active
+    ? await prisma.seller.findMany({
+        where: { storeId: store.active.id },
+        orderBy: [{ active: "desc" }, { name: "asc" }],
+        select: ADMIN_SELLER_SELECT,
+      })
+    : [];
 
   // `updatedAt` sai como Date do Prisma e como string do /api/admin/sellers.
   // Normalizo aqui para a tela ver sempre a mesma forma, inclusive após reload.
@@ -30,7 +38,11 @@ export default async function SellersAdminPage() {
 
   return (
     <AppShell user={session.user} section="sellers" breadcrumb="Vendedores">
-      <SellersAdmin initialSellers={initialSellers} />
+      <SellersAdmin
+        initialSellers={initialSellers}
+        stores={store.stores}
+        activeStoreId={store.active?.id ?? null}
+      />
     </AppShell>
   );
 }

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getActor } from "@/lib/auth";
-import { notFound, passwordChangeRequired, unauthorized } from "@/lib/http";
+import { canAccessStore } from "@/lib/authz";
+import { forbidden, notFound, passwordChangeRequired, unauthorized } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
@@ -15,6 +16,11 @@ export async function GET(request: Request, ctx: RouteContext<"/api/sellers/[id]
   if (session.user.mustChangePassword) return passwordChangeRequired();
 
   const { id } = await ctx.params;
+
+  const seller = await prisma.seller.findUnique({ where: { id }, select: { storeId: true } });
+  if (!seller) return notFound("Vendedor não encontrado.");
+  if (!canAccessStore(session.actor, seller.storeId)) return forbidden();
+
   const photo = await prisma.sellerPhoto.findUnique({ where: { sellerId: id } });
   if (!photo) return notFound("Este vendedor não tem foto salva.");
 

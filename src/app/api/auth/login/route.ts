@@ -44,7 +44,7 @@ export async function POST(request: Request) {
     where: { email },
     include: {
       roles: { include: { role: { select: { name: true } } } },
-      seller: { select: { id: true, name: true, active: true } },
+      seller: { select: { id: true, name: true, active: true, storeId: true } },
     },
   });
 
@@ -76,7 +76,7 @@ export async function POST(request: Request) {
     actor: {
       id: user.id,
       name: user.name,
-      role: primaryRole({ userId: user.id, sellerId: user.seller?.id ?? null, roles }),
+      role: primaryRole({ userId: user.id, sellerId: user.seller?.id ?? null, roles, storeIds: [] }),
     },
     details: { email: user.email, origem: clientKey, senhaProvisoria: user.mustChangePassword },
   });

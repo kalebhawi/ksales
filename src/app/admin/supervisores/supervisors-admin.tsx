@@ -1,10 +1,11 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { KeyRound, Pencil, Plus, Power, PowerOff, X } from "lucide-react";
+import { KeyRound, Pencil, Plus, Power, PowerOff, Store, X } from "lucide-react";
 import { apiUrl } from "@/lib/base-path";
 import { initialsOf, toneOf } from "@/lib/format";
 import { MIN_PASSWORD_LENGTH } from "@/lib/password-rules";
+import type { StoreOption } from "@/lib/store-rules";
 
 export type Supervisor = {
   id: string;
@@ -13,9 +14,16 @@ export type Supervisor = {
   active: boolean;
   mustChangePassword: boolean;
   createdAt: string;
+  stores: { id: string; name: string }[];
 };
 
-export function SupervisorsAdmin({ initialSupervisors }: { initialSupervisors: Supervisor[] }) {
+export function SupervisorsAdmin({
+  initialSupervisors,
+  stores,
+}: {
+  initialSupervisors: Supervisor[];
+  stores: StoreOption[];
+}) {
   const [supervisors, setSupervisors] = useState(initialSupervisors);
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Supervisor | null>(null);
@@ -57,7 +65,8 @@ export function SupervisorsAdmin({ initialSupervisors }: { initialSupervisors: S
           <p className="eyebrow">CADASTRO</p>
           <h1>Supervisores</h1>
           <p className="heading-subtitle">
-            Supervisores comandam a fila inteira e cadastram vendedores, mas não criam outros supervisores.
+            Supervisores comandam a fila e cadastram vendedores das lojas vinculadas a eles, mas não criam outros
+            supervisores.
           </p>
         </div>
         <button className="primary-button" onClick={() => setCreating(true)}>
@@ -81,6 +90,12 @@ export function SupervisorsAdmin({ initialSupervisors }: { initialSupervisors: S
             <div className="seller-info">
               <strong>{supervisor.name}</strong>
               <span>{supervisor.email}</span>
+              <span className="supervisor-stores">
+                <Store size={11} />{" "}
+                {supervisor.stores.length > 0
+                  ? supervisor.stores.map((store) => store.name).join(", ")
+                  : "nenhuma loja vinculada"}
+              </span>
             </div>
             {supervisor.mustChangePassword && supervisor.active && (
               <span className="admin-badge pending">Senha provisória</span>
@@ -115,6 +130,7 @@ export function SupervisorsAdmin({ initialSupervisors }: { initialSupervisors: S
       {creating && (
         <SupervisorDialog
           title="Novo supervisor"
+          stores={stores}
           pending={pending}
           onClose={() => setCreating(false)}
           onSubmit={async (payload) => {
@@ -128,6 +144,7 @@ export function SupervisorsAdmin({ initialSupervisors }: { initialSupervisors: S
         <SupervisorDialog
           title={`Editar ${editing.name}`}
           supervisor={editing}
+          stores={stores}
           pending={pending}
           onClose={() => setEditing(null)}
           onSubmit={async (payload) => {
@@ -146,18 +163,25 @@ export function SupervisorsAdmin({ initialSupervisors }: { initialSupervisors: S
 function SupervisorDialog({
   title,
   supervisor,
+  stores,
   pending,
   onClose,
   onSubmit,
 }: {
   title: string;
   supervisor?: Supervisor;
+  stores: StoreOption[];
   pending: boolean;
   onClose: () => void;
   onSubmit: (payload: Record<string, unknown>) => void;
 }) {
   const isEdit = Boolean(supervisor);
   const [formError, setFormError] = useState<string | null>(null);
+  const [storeIds, setStoreIds] = useState<string[]>(supervisor?.stores.map((store) => store.id) ?? []);
+
+  function toggleStore(id: string) {
+    setStoreIds((current) => (current.includes(id) ? current.filter((entry) => entry !== id) : [...current, id]));
+  }
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -170,7 +194,12 @@ function SupervisorDialog({
       return;
     }
 
-    const payload: Record<string, unknown> = { name };
+    if (storeIds.length === 0) {
+      setFormError("Selecione ao menos uma loja: sem loja o supervisor não enxerga vendedor nenhum.");
+      return;
+    }
+
+    const payload: Record<string, unknown> = { name, storeIds };
     const password = String(form.get("password") ?? "");
 
     if (!isEdit) {
@@ -208,6 +237,22 @@ function SupervisorDialog({
             <input id="email" name="email" type="email" autoComplete="off" required />
           </>
         )}
+
+        <span className="field-label">Lojas</span>
+        <div className="store-picker">
+          {stores.map((store) => (
+            <label key={store.id} className={`store-option ${storeIds.includes(store.id) ? "checked" : ""}`}>
+              <input
+                type="checkbox"
+                checked={storeIds.includes(store.id)}
+                onChange={() => toggleStore(store.id)}
+              />
+              <Store size={14} /> {store.name}
+            </label>
+          ))}
+          {stores.length === 0 && <p className="field-hint">Cadastre uma loja antes de criar supervisores.</p>}
+        </div>
+        <p className="field-hint">O supervisor só enxerga a fila, os vendedores e os números das lojas marcadas.</p>
 
         <label htmlFor="password">
           <KeyRound size={13} /> {isEdit ? "Nova senha (deixe vazio para manter)" : "Senha provisória"}

@@ -12,14 +12,21 @@ export type OperationTotals = SellerStats;
 
 const EMPTY: SellerStats = { calls: 0, completed: 0, sales: 0, conversion: 0 };
 
-export async function loadOperationStats(from: Date, to: Date) {
+/**
+ * Números de uma loja no período. `storeId` nulo é ausência de loja (usuário
+ * sem vínculo, banco recém-criado) e devolve zero — nunca a soma de todas.
+ */
+export async function loadOperationStats(from: Date, to: Date, storeId: string | null) {
+  const bySeller = new Map<string, SellerStats>();
+
+  if (!storeId) return { bySeller, totals: { ...EMPTY } };
+
   const grouped = await prisma.atendimento.groupBy({
     by: ["sellerId", "status", "action"],
-    where: { startedAt: { gte: from, lt: to } },
+    where: { storeId, startedAt: { gte: from, lt: to } },
     _count: { _all: true },
   });
 
-  const bySeller = new Map<string, SellerStats>();
   const totals: SellerStats = { ...EMPTY };
 
   for (const row of grouped) {

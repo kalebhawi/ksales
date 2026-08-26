@@ -10,7 +10,17 @@ import { apiUrl } from "@/lib/base-path";
  * Menu da conta no topo. Era um avatar decorativo, sem ação nenhuma — e é o
  * lugar onde todo mundo procura o próprio perfil.
  */
-export function AccountMenu({ name, initials, role }: { name: string; initials: string; role: string }) {
+export function AccountMenu({
+  name,
+  initials,
+  role,
+  photo,
+}: {
+  name: string;
+  initials: string;
+  role: string;
+  photo: string | null;
+}) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState(false);
@@ -47,7 +57,12 @@ export function AccountMenu({ name, initials, role }: { name: string; initials: 
         aria-label="Sua conta"
         onClick={() => setOpen((value) => !value)}
       >
-        <span className="mini-avatar blue">{initials}</span>
+        {photo ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img className="mini-avatar photo" src={photo} alt="" />
+        ) : (
+          <span className="mini-avatar blue">{initials}</span>
+        )}
         <ChevronDown size={15} />
       </button>
 

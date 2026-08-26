@@ -2,13 +2,15 @@ import { NextResponse } from "next/server";
 import { auditActor, recordAudit } from "@/lib/audit-log";
 import { ADMIN_SELLER_SELECT } from "@/app/api/admin/sellers/route";
 import { getActor } from "@/lib/auth";
-import { canManageSellerRegistry } from "@/lib/authz";
+import { canAccessStore, canManageSellerRegistry } from "@/lib/authz";
 import { badRequest, conflict, forbidden, notFound, passwordChangeRequired, readJson, unauthorized } from "@/lib/http";
 import { hashPassword } from "@/lib/password";
 import { MIN_PASSWORD_LENGTH } from "@/lib/password-rules";
 import { validatePhotoUrl, validateSellerLevel, validateSellerName } from "@/lib/seller-rules";
 import { prisma } from "@/lib/prisma";
+import { resequenceQueue } from "@/lib/queue-db";
 import { destroyUserSessions } from "@/lib/session";
+import { assertStoreAccess } from "@/lib/stores";
 
 export const dynamic = "force-dynamic";
 
@@ -23,9 +25,17 @@ export async function PATCH(request: Request, ctx: RouteContext<"/api/admin/sell
 
   const seller = await prisma.seller.findUnique({
     where: { id },
-    select: { id: true, name: true, userId: true, queueStatus: true },
+    select: {
+      id: true,
+      name: true,
+      userId: true,
+      queueStatus: true,
+      storeId: true,
+      store: { select: { id: true, name: true } },
+    },
   });
   if (!seller) return notFound("Vendedor não encontrado.");
+  if (!canAccessStore(session.actor, seller.storeId)) return forbidden();
 
   const data: Record<string, unknown> = {};
 
@@ -51,6 +61,23 @@ export async function PATCH(request: Request, ctx: RouteContext<"/api/admin/sell
   }
 
   if (typeof body.description === "string") data.description = body.description.trim() || null;
+
+  // Transferência de loja. A fila é por loja, então quem muda sai da fila da
+  // antiga: manter a posição levaria uma numeração para uma fila onde ela não
+  // significa nada.
+  const movingTo =
+    typeof body.storeId === "string" && body.storeId && body.storeId !== seller.storeId ? body.storeId : null;
+
+  if (movingTo) {
+    if (!(await assertStoreAccess(session.actor, movingTo))) return forbidden();
+    if (seller.queueStatus === "IN_SERVICE") {
+      return conflict("Conclua o atendimento em andamento antes de transferir o vendedor de loja.");
+    }
+
+    data.storeId = movingTo;
+    data.queueStatus = "OFF_SHIFT";
+    data.queuePosition = null;
+  }
 
   if (body.photoUrl !== undefined) {
     const check = validatePhotoUrl(body.photoUrl);
@@ -81,6 +108,12 @@ export async function PATCH(request: Request, ctx: RouteContext<"/api/admin/sell
   const passwordHash = newPassword ? await hashPassword(newPassword) : null;
 
   const updated = await prisma.$transaction(async (tx) => {
+    if (movingTo) {
+      await tx.queueEvent.create({
+        data: { sellerId: id, action: "ENDED_SHIFT", reason: "transferencia_de_loja", performedBy: session.user.id },
+      });
+    }
+
     if (passwordHash && seller.userId) {
       // Reset feito pelo administrador também gera senha provisória.
       await tx.user.update({
@@ -99,7 +132,12 @@ export async function PATCH(request: Request, ctx: RouteContext<"/api/admin/sell
       });
     }
 
-    return tx.seller.update({ where: { id }, data, select: ADMIN_SELLER_SELECT });
+    const saved = await tx.seller.update({ where: { id }, data, select: ADMIN_SELLER_SELECT });
+
+    // A fila da loja de origem fica com um buraco na numeração sem isto.
+    if (movingTo) await resequenceQueue(tx, seller.storeId);
+
+    return saved;
   });
 
   if (seller.userId && (body.active === false || passwordHash)) {
@@ -114,12 +152,25 @@ export async function PATCH(request: Request, ctx: RouteContext<"/api/admin/sell
     action,
     actor: auditActor(session.user),
     target: { id: updated.id, name: updated.name },
+    store: updated.store,
     details: {
       campos: Object.keys(data),
       ...(passwordHash ? { senhaRedefinida: true, provisoria: true } : {}),
       ...(seller.name !== updated.name ? { nomeAnterior: seller.name } : {}),
     },
   });
+
+  // Transferência é um fato próprio na trilha: sai da loja de origem e entra na
+  // de destino, e as duas precisam aparecer.
+  if (movingTo) {
+    await recordAudit({
+      action: "SELLER_STORE_CHANGED",
+      actor: auditActor(session.user),
+      target: { id: updated.id, name: updated.name },
+      store: updated.store,
+      details: { lojaAnterior: seller.store.name, loja: updated.store.name, situacaoAnterior: seller.queueStatus },
+    });
+  }
 
   return NextResponse.json(updated);
 }
@@ -134,9 +185,17 @@ export async function DELETE(_request: Request, ctx: RouteContext<"/api/admin/se
   const { id } = await ctx.params;
   const seller = await prisma.seller.findUnique({
     where: { id },
-    select: { id: true, name: true, userId: true, queueStatus: true },
+    select: {
+      id: true,
+      name: true,
+      userId: true,
+      queueStatus: true,
+      storeId: true,
+      store: { select: { id: true, name: true } },
+    },
   });
   if (!seller) return notFound("Vendedor não encontrado.");
+  if (!canAccessStore(session.actor, seller.storeId)) return forbidden();
 
   await prisma.$transaction(async (tx) => {
     await tx.seller.update({
@@ -151,6 +210,8 @@ export async function DELETE(_request: Request, ctx: RouteContext<"/api/admin/se
         data: { sellerId: id, action: "ENDED_SHIFT", reason: "desativado", performedBy: session.user.id },
       });
     }
+
+    await resequenceQueue(tx, seller.storeId);
   });
 
   if (seller.userId) await destroyUserSessions(seller.userId);
@@ -159,6 +220,7 @@ export async function DELETE(_request: Request, ctx: RouteContext<"/api/admin/se
     action: "SELLER_DEACTIVATED",
     actor: auditActor(session.user),
     target: { id: seller.id, name: seller.name },
+    store: seller.store,
     details: { situacaoAnterior: seller.queueStatus, acessoRevogado: Boolean(seller.userId) },
   });
 

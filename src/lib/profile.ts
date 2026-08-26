@@ -16,6 +16,7 @@ import { loadOperationStats, statsFor } from "@/lib/stats";
  */
 export type ProfileSeller = {
   badgeNumber: string;
+  storeName: string;
   level: number;
   status: SellerUiStatus;
   calls: number;
@@ -59,10 +60,11 @@ export async function loadProfile(user: SessionUser): Promise<ProfileView> {
           description: true,
           photoUrl: true,
           queueStatus: true,
+          store: { select: { name: true } },
           photo: { select: { updatedAt: true } },
         },
       }),
-      loadOperationStats(from, to),
+      loadOperationStats(from, to, user.sellerStoreId),
     ]);
 
     if (seller) {
@@ -79,6 +81,7 @@ export async function loadProfile(user: SessionUser): Promise<ProfileView> {
         description: seller.description ?? "",
         seller: {
           badgeNumber: seller.badgeNumber,
+          storeName: seller.store.name,
           level: seller.level,
           status: UI_STATUS_BY_QUEUE_STATUS[seller.queueStatus],
           calls: stats.calls,
@@ -107,4 +110,27 @@ export async function loadProfile(user: SessionUser): Promise<ProfileView> {
 /** O `v` invalida o cache do navegador quando a pessoa troca a imagem. */
 function photoLink(updatedAt: Date | undefined) {
   return updatedAt ? `${apiUrl("/perfil/photo")}?v=${updatedAt.getTime()}` : null;
+}
+
+/**
+ * Só a foto da própria sessão. O topo e o rodapé da barra lateral aparecem em
+ * toda tela — não vale carregar o perfil inteiro, com as estatísticas do dia,
+ * para desenhar um avatar de 30px.
+ */
+export async function loadSessionPhoto(user: SessionUser): Promise<string | null> {
+  if (user.sellerId) {
+    const seller = await prisma.seller.findUnique({
+      where: { id: user.sellerId },
+      select: { photoUrl: true, photo: { select: { updatedAt: true } } },
+    });
+
+    return photoLink(seller?.photo?.updatedAt) ?? seller?.photoUrl ?? null;
+  }
+
+  const account = await prisma.user.findUnique({
+    where: { id: user.id },
+    select: { photoUrl: true, photo: { select: { updatedAt: true } } },
+  });
+
+  return photoLink(account?.photo?.updatedAt) ?? account?.photoUrl ?? null;
 }

@@ -328,3 +328,36 @@ a.primary-button, a.row-action { text-decoration: none; }
   .profile-metrics { grid-template-columns: 1fr; }
   .profile-card { padding: 18px 16px; }
 }
+
+/* Avatar com foto: mesma medida do círculo com iniciais, no topo e na barra lateral. */
+.mini-avatar.photo { background: #e7e4de; display: block; object-fit: cover; }
+
+/* Loja: seletor do topo da barra lateral, cadastro e trilha */
+.store-switcher { position: relative; }
+.store-switcher .workspace-switcher { cursor: pointer; text-align: left; width: 100%; }
+.store-switcher .workspace-switcher:hover, .workspace-switcher.open { border-color: #4e5561; }
+.workspace-switcher .store-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-switcher.empty { color: #9aa0aa; gap: 7px; }
+.store-dropdown { left: 0; position: absolute; right: 0; top: calc(100% + 6px); z-index: 6; }
+.store-dropdown button { align-items: center; background: none; border: 0; border-radius: 5px; color: #55565a; display: flex; font-size: 12px; gap: 9px; padding: 8px 9px; text-align: left; width: 100%; }
+.store-dropdown button:hover { background: #f4f2ee; color: var(--ink); }
+.store-dropdown button.current { color: var(--orange); font-weight: 700; }
+.store-dropdown .store-check { margin-left: auto; }
+.store-error { color: #c2543a; font-size: 10px; margin: 6px 0 0; }
+.store-avatar { background: #ece9e3; color: #7d7b76; }
+.supervisor-stores { align-items: center; color: #aaa8a4; display: flex; font-size: 10px; gap: 4px; margin-top: 3px; }
+.field-label { color: #7c7b78; display: block; font-size: 10px; font-weight: 600; letter-spacing: .3px; margin-bottom: 6px; text-transform: uppercase; }
+.store-picker { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 4px; }
+.store-option { align-items: center; border: 1px solid var(--line); border-radius: 20px; color: #6b6c6f; cursor: pointer; display: flex; font-size: 11px; font-weight: 600; gap: 6px; letter-spacing: 0; margin: 0; padding: 7px 13px; text-transform: none; }
+.store-option:hover { border-color: var(--orange); color: var(--orange); }
+.store-option.checked { background: #fbeee6; border-color: var(--orange); color: #b3703f; }
+.store-option input { display: none; }
+.audit-store { color: #6b6c6f; font-size: 11px; }
+
+/* Barra lateral recolhida: o seletor vira ícone, mas continua abrindo a lista. */
+@media (max-width: 800px) {
+  .store-switcher .workspace-switcher { justify-content: center; padding: 11px 0; }
+  .workspace-switcher .store-name { display: none; }
+  .store-switcher .workspace-switcher svg { margin-left: 0; }
+  .store-dropdown { right: auto; width: 190px; }
+}

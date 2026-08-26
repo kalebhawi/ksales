@@ -54,8 +54,37 @@ model User {
   seller       Seller?
   sessions     Session[]
   photo        UserPhoto?
+  stores       UserStore[]
 
   @@map("users")
+}
+
+/// Unidade da operação. Fila, atendimentos e cadastro são sempre de uma loja.
+model Store {
+  id        String        @id @default(cuid())
+  name      String        @unique
+  active    Boolean       @default(true)
+  createdAt DateTime      @default(now()) @map("created_at")
+  updatedAt DateTime      @updatedAt @map("updated_at")
+  sellers   Seller[]
+  services  Atendimento[]
+  users     UserStore[]
+
+  @@map("stores")
+}
+
+/// Lojas que um supervisor enxerga. Administrador não tem vínculo: vê todas.
+/// Vendedor também não: a loja dele é a do cadastro, em `sellers.store_id`.
+model UserStore {
+  userId     String   @map("user_id")
+  storeId    String   @map("store_id")
+  assignedAt DateTime @default(now()) @map("assigned_at")
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  store      Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@id([userId, storeId])
+  @@index([storeId])
+  @@map("user_stores")
 }
 
 model Role {
@@ -83,6 +112,7 @@ model UserRole {
 model Seller {
   id             String            @id @default(cuid())
   userId         String?           @unique @map("user_id")
+  storeId        String            @map("store_id")
   name           String
   badgeNumber    String            @unique @map("badge_number")
   level          Int               @default(1)
@@ -94,11 +124,13 @@ model Seller {
   createdAt      DateTime          @default(now()) @map("created_at")
   updatedAt      DateTime          @updatedAt @map("updated_at")
   user           User?             @relation(fields: [userId], references: [id], onDelete: SetNull)
+  store          Store             @relation(fields: [storeId], references: [id], onDelete: Restrict)
   services       Atendimento[]
   queueEvents    QueueEvent[]
   photo          SellerPhoto?
 
-  @@index([queueStatus, queuePosition])
+  // A fila é por loja: a posição só faz sentido dentro de uma delas.
+  @@index([storeId, queueStatus, queuePosition])
   @@index([active])
   @@map("sellers")
 }
@@ -106,6 +138,9 @@ model Seller {
 model Atendimento {
   id           String        @id @default(cuid())
   sellerId     String        @map("seller_id")
+  /// Copiada do vendedor no início do atendimento, de propósito: transferir
+  /// alguém de loja não pode reescrever o faturamento do mês passado.
+  storeId      String        @map("store_id")
   status       AtendimentoStatus @default(IN_PROGRESS)
   action       ServiceAction?
   startedAt    DateTime      @default(now()) @map("started_at")
@@ -117,9 +152,11 @@ model Atendimento {
   createdAt    DateTime      @default(now()) @map("created_at")
   updatedAt    DateTime      @updatedAt @map("updated_at")
   seller       Seller        @relation(fields: [sellerId], references: [id], onDelete: Restrict)
+  store        Store         @relation(fields: [storeId], references: [id], onDelete: Restrict)
 
   @@index([sellerId, status])
   @@index([startedAt])
+  @@index([storeId, startedAt])
   @@map("status_atendimento")
 }
 

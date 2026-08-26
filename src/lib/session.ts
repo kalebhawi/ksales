@@ -41,7 +41,8 @@ export async function readSession() {
       user: {
         include: {
           roles: { include: { role: { select: { name: true } } } },
-          seller: { select: { id: true, name: true, active: true } },
+          seller: { select: { id: true, name: true, active: true, storeId: true } },
+          stores: { select: { storeId: true } },
         },
       },
     },

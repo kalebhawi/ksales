@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auditActor, recordAudit } from "@/lib/audit-log";
 import { getActor } from "@/lib/auth";
-import { canManageSellerRegistry } from "@/lib/authz";
+import { canAccessStore, canManageSellerRegistry } from "@/lib/authz";
 import { badRequest, forbidden, notFound, passwordChangeRequired, unauthorized } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
 import { MAX_PHOTO_BYTES, formatBytes, validatePhotoUpload } from "@/lib/seller-rules";
@@ -16,8 +16,12 @@ export async function POST(request: Request, ctx: RouteContext<"/api/admin/selle
   if (!canManageSellerRegistry(session.actor)) return forbidden();
 
   const { id } = await ctx.params;
-  const seller = await prisma.seller.findUnique({ where: { id }, select: { id: true, name: true } });
+  const seller = await prisma.seller.findUnique({
+    where: { id },
+    select: { id: true, name: true, storeId: true, store: { select: { id: true, name: true } } },
+  });
   if (!seller) return notFound("Vendedor não encontrado.");
+  if (!canAccessStore(session.actor, seller.storeId)) return forbidden();
 
   let file: unknown;
   try {
@@ -53,6 +57,7 @@ export async function POST(request: Request, ctx: RouteContext<"/api/admin/selle
     action: "SELLER_PHOTO_UPDATED",
     actor: auditActor(session.user),
     target: { id: seller.id, name: seller.name },
+    store: seller.store,
     details: { origem: "cadastro_administrativo", tipo: photo.mimeType, bytes: photo.byteSize },
   });
 
@@ -66,14 +71,21 @@ export async function DELETE(_request: Request, ctx: RouteContext<"/api/admin/se
   if (!canManageSellerRegistry(session.actor)) return forbidden();
 
   const { id } = await ctx.params;
-  const seller = await prisma.seller.findUnique({ where: { id }, select: { name: true } });
+  const seller = await prisma.seller.findUnique({
+    where: { id },
+    select: { name: true, storeId: true, store: { select: { id: true, name: true } } },
+  });
+  if (!seller) return notFound("Vendedor não encontrado.");
+  if (!canAccessStore(session.actor, seller.storeId)) return forbidden();
+
   const { count } = await prisma.sellerPhoto.deleteMany({ where: { sellerId: id } });
 
-  if (count > 0 && seller) {
+  if (count > 0) {
     await recordAudit({
       action: "SELLER_PHOTO_REMOVED",
       actor: auditActor(session.user),
       target: { id, name: seller.name },
+      store: seller.store,
       details: { origem: "cadastro_administrativo" },
     });
   }

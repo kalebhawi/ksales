@@ -7,12 +7,15 @@ import { hashPassword } from "@/lib/password";
 import { MIN_PASSWORD_LENGTH } from "@/lib/password-rules";
 import { MIN_SELLER_LEVEL, validatePhotoUrl, validateSellerLevel, validateSellerName } from "@/lib/seller-rules";
 import { prisma } from "@/lib/prisma";
+import { activeStoreId, assertStoreAccess } from "@/lib/stores";
 
 export const dynamic = "force-dynamic";
 
 export const ADMIN_SELLER_SELECT = {
   id: true,
   name: true,
+  storeId: true,
+  store: { select: { id: true, name: true } },
   badgeNumber: true,
   level: true,
   photoUrl: true,
@@ -29,7 +32,12 @@ export async function GET() {
   if (session.user.mustChangePassword) return passwordChangeRequired();
   if (!canManageSellerRegistry(session.actor)) return forbidden();
 
+  // O cadastro é o da loja aberta na tela, igual à fila e à visão geral.
+  const storeId = await activeStoreId(session.user);
+  if (!storeId) return NextResponse.json([]);
+
   const sellers = await prisma.seller.findMany({
+    where: { storeId },
     orderBy: [{ active: "desc" }, { name: "asc" }],
     select: ADMIN_SELLER_SELECT,
   });
@@ -59,6 +67,12 @@ export async function POST(request: Request) {
 
   const name = nameCheck.value;
   const level = levelCheck.value;
+
+  // Sem loja informada, a que está aberta na tela. Em qualquer caso o acesso é
+  // conferido no servidor: ninguém cadastra vendedor em loja que não enxerga.
+  const storeId = typeof body.storeId === "string" && body.storeId ? body.storeId : await activeStoreId(session.user);
+  if (!storeId) return badRequest("Selecione a loja do vendedor.");
+  if (!(await assertStoreAccess(session.actor, storeId))) return forbidden();
 
   if (!badgeNumber) return badRequest("Número de crachá é obrigatório.");
   if (email && password.length < MIN_PASSWORD_LENGTH) {
@@ -97,6 +111,7 @@ export async function POST(request: Request) {
     return tx.seller.create({
       data: {
         name,
+        storeId,
         badgeNumber,
         level,
         description: typeof body.description === "string" ? body.description.trim() || null : null,
@@ -111,6 +126,7 @@ export async function POST(request: Request) {
     action: "SELLER_CREATED",
     actor: auditActor(session.user),
     target: { id: seller.id, name: seller.name },
+    store: seller.store,
     details: { cracha: seller.badgeNumber, nivel: seller.level, acesso: seller.user?.email ?? null },
   });
 

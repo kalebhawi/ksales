@@ -5,6 +5,7 @@ import { KeyRound, Pencil, Plus, Power, PowerOff, Trash2, X } from "lucide-react
 import { apiUrl } from "@/lib/base-path";
 import { initialsOf, toneOf } from "@/lib/format";
 import { MIN_PASSWORD_LENGTH } from "@/lib/password-rules";
+import type { StoreOption } from "@/lib/store-rules";
 import {
   ALLOWED_PHOTO_TYPES,
   MAX_PHOTO_BYTES,
@@ -18,6 +19,8 @@ import {
 export type AdminSeller = {
   id: string;
   name: string;
+  storeId: string;
+  store: { id: string; name: string };
   badgeNumber: string;
   level: number;
   photoUrl: string | null;
@@ -28,7 +31,15 @@ export type AdminSeller = {
   photo: { mimeType: string; byteSize: number; updatedAt: string } | null;
 };
 
-export function SellersAdmin({ initialSellers }: { initialSellers: AdminSeller[] }) {
+export function SellersAdmin({
+  initialSellers,
+  stores,
+  activeStoreId,
+}: {
+  initialSellers: AdminSeller[];
+  stores: StoreOption[];
+  activeStoreId: string | null;
+}) {
   const [sellers, setSellers] = useState(initialSellers);
   const [editing, setEditing] = useState<AdminSeller | null>(null);
   const [creating, setCreating] = useState(false);
@@ -102,15 +113,21 @@ export function SellersAdmin({ initialSellers }: { initialSellers: AdminSeller[]
     );
   }
 
+  const activeStore = stores.find((store) => store.id === activeStoreId) ?? null;
+
   return (
     <>
       <section className="page-heading">
         <div>
           <p className="eyebrow">CADASTRO</p>
           <h1>Vendedores</h1>
-          <p className="heading-subtitle">Cadastre, edite e desative os vendedores da operação.</p>
+          <p className="heading-subtitle">
+            Cadastre, edite e desative os vendedores{" "}
+            {activeStore ? <>da <strong>{activeStore.name}</strong>.</> : "da operação."}{" "}
+            {stores.length > 1 && "Troque de loja no seletor do topo para ver as demais."}
+          </p>
         </div>
-        <button className="primary-button" onClick={() => setCreating(true)}>
+        <button className="primary-button" disabled={!activeStore} onClick={() => setCreating(true)}>
           <Plus size={17} /> Novo vendedor
         </button>
       </section>
@@ -168,6 +185,8 @@ export function SellersAdmin({ initialSellers }: { initialSellers: AdminSeller[]
       {creating && (
         <SellerDialog
           title="Novo vendedor"
+          stores={stores}
+          activeStoreId={activeStoreId}
           pending={pending}
           onClose={() => setCreating(false)}
           onSubmit={async (payload, file) => {
@@ -188,6 +207,8 @@ export function SellersAdmin({ initialSellers }: { initialSellers: AdminSeller[]
         <SellerDialog
           title={`Editar ${editing.name}`}
           seller={editing}
+          stores={stores}
+          activeStoreId={activeStoreId}
           pending={pending}
           onClose={() => setEditing(null)}
           onSubmit={async (payload, file) => {
@@ -217,6 +238,8 @@ export function SellersAdmin({ initialSellers }: { initialSellers: AdminSeller[]
 function SellerDialog({
   title,
   seller,
+  stores,
+  activeStoreId,
   pending,
   onClose,
   onSubmit,
@@ -224,6 +247,8 @@ function SellerDialog({
 }: {
   title: string;
   seller?: AdminSeller;
+  stores: StoreOption[];
+  activeStoreId: string | null;
   pending: boolean;
   onClose: () => void;
   onSubmit: (payload: Record<string, unknown>, file: File | null) => void;
@@ -301,6 +326,7 @@ function SellerDialog({
 
     const payload: Record<string, unknown> = {
       name: nameCheck.value,
+      storeId: String(form.get("storeId") ?? ""),
       badgeNumber: String(form.get("badgeNumber") ?? ""),
       level: Number(form.get("level") ?? MIN_SELLER_LEVEL),
       description: String(form.get("description") ?? ""),
@@ -337,6 +363,20 @@ function SellerDialog({
 
         <label htmlFor="name">Nome</label>
         <input id="name" name="name" defaultValue={seller?.name} required />
+
+        <label htmlFor="storeId">Loja</label>
+        <select id="storeId" name="storeId" defaultValue={seller?.storeId ?? activeStoreId ?? ""} required>
+          {stores.map((store) => (
+            <option key={store.id} value={store.id}>
+              {store.name}
+            </option>
+          ))}
+        </select>
+        {isEdit && (
+          <p className="field-hint">
+            Transferir de loja tira o vendedor da fila atual: a posição não significa nada na fila da outra loja.
+          </p>
+        )}
 
         <label htmlFor="badgeNumber">Crachá</label>
         <input id="badgeNumber" name="badgeNumber" defaultValue={seller?.badgeNumber} required />

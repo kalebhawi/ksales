@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { BadgeCheck, ImageUp, KeyRound, Save, Star, Trash2 } from "lucide-react";
+import { BadgeCheck, ImageUp, KeyRound, Save, Star, Store, Trash2 } from "lucide-react";
 import { apiUrl } from "@/lib/base-path";
 import type { ProfileView } from "@/lib/profile";
 import {
@@ -152,6 +152,9 @@ export function ProfileForm({ profile }: { profile: ProfileView }) {
             <span className="profile-badge role">{profile.role}</span>
             {profile.seller && (
               <>
+                <span className="profile-badge">
+                  <Store size={13} /> {profile.seller.storeName}
+                </span>
                 <span className="profile-badge">
                   <BadgeCheck size={13} /> Crachá {profile.seller.badgeNumber}
                 </span>

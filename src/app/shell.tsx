@@ -1,15 +1,18 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { Bell, ChevronDown, ChevronRight, FileClock, LayoutDashboard, ListOrdered, ShieldCheck, UserCircle, Users } from "lucide-react";
+import { Bell, ChevronRight, FileClock, LayoutDashboard, ListOrdered, ShieldCheck, Store, UserCircle, Users } from "lucide-react";
 import { AccountMenu } from "./account-menu";
 import type { SessionUser } from "@/lib/auth";
 import { ROLE_LABELS } from "@/lib/authz";
 import { initialsOf } from "@/lib/format";
+import { loadSessionPhoto } from "@/lib/profile";
+import { loadStoreContext } from "@/lib/stores";
 import { LogoutButton } from "./logout-button";
+import { StoreSwitcher } from "./store-switcher";
 
-export type ShellSection = "overview" | "queue" | "sellers" | "supervisors" | "audit" | "profile";
+export type ShellSection = "overview" | "queue" | "sellers" | "supervisors" | "stores" | "audit" | "profile";
 
-export function AppShell({
+export async function AppShell({
   user,
   section,
   breadcrumb,
@@ -23,6 +26,7 @@ export function AppShell({
   children: ReactNode;
 }) {
   const initials = initialsOf(user.name);
+  const [photo, storeContext] = await Promise.all([loadSessionPhoto(user), loadStoreContext(user)]);
 
   return (
     <div className="app-shell">
@@ -31,9 +35,11 @@ export function AppShell({
           <span className="brand-mark">k</span>
           <span>kalebhawi</span>
         </div>
-        <div className="workspace-switcher">
-          <span className="workspace-dot" /> Operação comercial <ChevronDown size={14} />
-        </div>
+        <StoreSwitcher
+          stores={storeContext.stores}
+          activeStoreId={storeContext.active?.id ?? null}
+          canSwitch={storeContext.canSwitch}
+        />
         <nav className="main-nav">
           <p className="nav-label">Operação</p>
           {user.canViewDashboard && (
@@ -57,6 +63,11 @@ export function AppShell({
               <ShieldCheck size={18} /> Supervisores
             </Link>
           )}
+          {user.canManageStores && (
+            <Link className={`nav-item ${section === "stores" ? "active" : ""}`} href="/admin/lojas">
+              <Store size={18} /> Lojas
+            </Link>
+          )}
           {user.canDownloadAuditLog && (
             <Link className={`nav-item ${section === "audit" ? "active" : ""}`} href="/admin/auditoria">
               <FileClock size={18} /> Auditoria
@@ -67,7 +78,7 @@ export function AppShell({
           </Link>
         </nav>
         <div className="sidebar-footer">
-          <div className="mini-avatar coral">{initials}</div>
+          <MiniAvatar photo={photo} initials={initials} tone="coral" />
           <div>
             <strong>{user.name}</strong>
             <span>{ROLE_LABELS[user.role]}</span>
@@ -88,11 +99,24 @@ export function AppShell({
               <Bell size={18} />
               <i />
             </button>
-            <AccountMenu name={user.name} initials={initials} role={ROLE_LABELS[user.role]} />
+            <AccountMenu name={user.name} initials={initials} role={ROLE_LABELS[user.role]} photo={photo} />
           </div>
         </header>
         <div className="content-wrap">{children}</div>
       </main>
     </div>
   );
+}
+
+/**
+ * Sem next/image de propósito: a foto enviada vem de rota autenticada, e o
+ * otimizador do Next a buscaria a partir do servidor, sem o cookie — levaria 401.
+ */
+function MiniAvatar({ photo, initials, tone }: { photo: string | null; initials: string; tone: string }) {
+  if (photo) {
+    // eslint-disable-next-line @next/next/no-img-element
+    return <img className="mini-avatar photo" src={photo} alt="" />;
+  }
+
+  return <div className={`mini-avatar ${tone}`}>{initials}</div>;
 }

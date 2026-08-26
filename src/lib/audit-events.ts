@@ -26,6 +26,11 @@ export const AUDIT_ACTIONS = [
   "SUPERVISOR_UPDATED",
   "SUPERVISOR_DEACTIVATED",
   "SUPERVISOR_REACTIVATED",
+  "SUPERVISOR_STORES_UPDATED",
+  "STORE_CREATED",
+  "STORE_UPDATED",
+  "STORE_SWITCHED",
+  "SELLER_STORE_CHANGED",
   "AUDIT_LOG_DOWNLOADED",
 ] as const;
 
@@ -54,6 +59,11 @@ export const AUDIT_ACTION_LABELS: Record<AuditAction, string> = {
   SUPERVISOR_UPDATED: "Supervisor editado",
   SUPERVISOR_DEACTIVATED: "Supervisor desativado",
   SUPERVISOR_REACTIVATED: "Supervisor reativado",
+  SUPERVISOR_STORES_UPDATED: "Lojas do supervisor alteradas",
+  STORE_CREATED: "Loja cadastrada",
+  STORE_UPDATED: "Loja editada",
+  STORE_SWITCHED: "Troca da loja em visualização",
+  SELLER_STORE_CHANGED: "Vendedor transferido de loja",
   AUDIT_LOG_DOWNLOADED: "Download do log de auditoria",
 };
 
@@ -63,12 +73,19 @@ export type AuditActor = { id: string; name: string; role: string } | null;
 /** Sobre quem foi. Vendedor, supervisor ou usuário — sempre nome + id. */
 export type AuditTarget = { id: string; name: string } | null;
 
+/**
+ * Em qual loja. `null` no que não pertence a nenhuma (login, download da
+ * trilha) e nas linhas gravadas antes de a operação ser multi-loja.
+ */
+export type AuditStore = { id: string; name: string } | null;
+
 export type AuditEntry = {
   timestamp: string;
   action: AuditAction;
   label: string;
   actor: AuditActor;
   target: AuditTarget;
+  store: AuditStore;
   details: Record<string, unknown>;
 };
 
@@ -153,6 +170,11 @@ export const AUDIT_ACTION_GROUP: Record<AuditAction, AuditActionGroup> = {
   SUPERVISOR_UPDATED: "cadastro",
   SUPERVISOR_DEACTIVATED: "cadastro",
   SUPERVISOR_REACTIVATED: "cadastro",
+  SUPERVISOR_STORES_UPDATED: "cadastro",
+  STORE_CREATED: "cadastro",
+  STORE_UPDATED: "cadastro",
+  SELLER_STORE_CHANGED: "cadastro",
+  STORE_SWITCHED: "acesso",
   AUDIT_LOG_DOWNLOADED: "auditoria",
 };
 
@@ -205,6 +227,12 @@ export const AUDIT_DETAIL_LABELS: Record<string, string> = {
   acessoRevogado: "acesso revogado",
   tipo: "tipo",
   bytes: "bytes",
+  loja: "loja",
+  lojaAnterior: "loja anterior",
+  lojas: "lojas",
+  adicionadas: "adicionadas",
+  removidas: "removidas",
+  ativa: "ativa",
   de: "de",
   ate: "até",
   dias: "dias",
@@ -233,6 +261,8 @@ export const AUDIT_VALUE_LABELS: Record<string, string> = {
   propria_conta: "própria conta",
   cadastro_de_vendedor: "cadastro de vendedor",
   cadastro_administrativo: "cadastro administrativo",
+  troca_de_loja: "troca de loja",
+  cadastro_de_loja: "cadastro de loja",
   email_inexistente: "e-mail inexistente",
   usuario_inativo: "usuário inativo",
   senha_incorreta: "senha incorreta",
@@ -271,6 +301,7 @@ export function parseAuditLine(line: string): AuditEntry | null {
       label: typeof parsed.label === "string" ? parsed.label : AUDIT_ACTION_LABELS[parsed.action as AuditAction],
       actor: parsed.actor ?? null,
       target: parsed.target ?? null,
+      store: parsed.store ?? null,
       details: parsed.details && typeof parsed.details === "object" ? parsed.details : {},
     };
   } catch {
@@ -303,6 +334,7 @@ export function matchesAuditSearch(entry: AuditEntry, term: string) {
     entry.actor?.role,
     entry.target?.name,
     entry.target?.id,
+    entry.store?.name,
     ...Object.entries(entry.details).flatMap(([key, value]) => [
       key,
       auditDetailLabel(key),

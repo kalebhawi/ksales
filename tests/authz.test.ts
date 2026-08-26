@@ -7,8 +7,10 @@ import {
   assignableRoles,
   canAssignRole,
   canEditOwnProfile,
+  canAccessStore,
   canManageSeller,
   canManageSellerRegistry,
+  canManageStores,
   canDownloadAuditLog,
   canManageSupervisors,
   canSuperviseQueue,
@@ -19,10 +21,14 @@ import {
   type Actor,
 } from "../src/lib/authz";
 
-const admin: Actor = { userId: "u1", sellerId: null, roles: [ADMIN_ROLE] };
-const supervisor: Actor = { userId: "u2", sellerId: null, roles: [SUPERVISOR_ROLE] };
-const seller: Actor = { userId: "u3", sellerId: "s3", roles: [SELLER_ROLE] };
-const orphan: Actor = { userId: "u4", sellerId: null, roles: [SELLER_ROLE] };
+const LOJA_1 = "loja-1";
+const LOJA_2 = "loja-2";
+
+// Administrador não tem vínculo de loja: enxerga todas.
+const admin: Actor = { userId: "u1", sellerId: null, roles: [ADMIN_ROLE], storeIds: [] };
+const supervisor: Actor = { userId: "u2", sellerId: null, roles: [SUPERVISOR_ROLE], storeIds: [LOJA_1] };
+const seller: Actor = { userId: "u3", sellerId: "s3", roles: [SELLER_ROLE], storeIds: [LOJA_1] };
+const orphan: Actor = { userId: "u4", sellerId: null, roles: [SELLER_ROLE], storeIds: [] };
 
 describe("papéis", () => {
   it("reconhece cada papel", () => {
@@ -113,5 +119,40 @@ describe("perfil próprio", () => {
     // Supervisor altera o cadastro pela tela administrativa, não pelo /perfil.
     assert.equal(canEditOwnProfile(supervisor, "s3"), false);
     assert.equal(canEditOwnProfile(admin, "s3"), false);
+  });
+});
+
+describe("lojas", () => {
+  it("administrador enxerga qualquer loja, mesmo sem vínculo", () => {
+    assert.equal(canAccessStore(admin, LOJA_1), true);
+    assert.equal(canAccessStore(admin, LOJA_2), true);
+  });
+
+  it("supervisor enxerga só as lojas vinculadas", () => {
+    assert.equal(canAccessStore(supervisor, LOJA_1), true);
+    assert.equal(canAccessStore(supervisor, LOJA_2), false);
+  });
+
+  it("supervisor não comanda a fila de loja que não é dele", () => {
+    assert.equal(canManageSeller(supervisor, "s9", LOJA_1), true);
+    assert.equal(canManageSeller(supervisor, "s9", LOJA_2), false);
+  });
+
+  it("vendedor não comanda a si mesmo em loja que não enxerga", () => {
+    // Vale para o caso de o vínculo ter sido trocado depois que a sessão abriu.
+    assert.equal(canManageSeller(seller, "s3", LOJA_1), true);
+    assert.equal(canManageSeller(seller, "s3", LOJA_2), false);
+  });
+
+  it("sem loja informada, a regra continua sendo só a de papel", () => {
+    assert.equal(canManageSeller(supervisor, "s9"), true);
+    assert.equal(canManageSeller(seller, "s3"), true);
+    assert.equal(canManageSeller(seller, "s4"), false);
+  });
+
+  it("cadastro de lojas é só do administrador", () => {
+    assert.equal(canManageStores(admin), true);
+    assert.equal(canManageStores(supervisor), false);
+    assert.equal(canManageStores(seller), false);
   });
 });

@@ -16,6 +16,8 @@ export type Actor = {
   userId: string;
   sellerId: string | null;
   roles: string[];
+  /** Lojas vinculadas. Vazio para administrador, que enxerga todas. */
+  storeIds: string[];
 };
 
 export function isAdmin(actor: Actor) {
@@ -44,7 +46,26 @@ export function canViewDashboard(actor: Actor) {
   return canSuperviseQueue(actor);
 }
 
-export function canManageSeller(actor: Actor, sellerId: string) {
+/**
+ * Loja que o ator pode enxergar. Administrador passa em qualquer uma — quem
+ * confere se ela existe e está ativa é `assertStoreAccess`, no banco.
+ */
+export function canAccessStore(actor: Actor, storeId: string) {
+  return isAdmin(actor) || actor.storeIds.includes(storeId);
+}
+
+/** Criar, renomear e desativar lojas: só administrador. */
+export function canManageStores(actor: Actor) {
+  return isAdmin(actor);
+}
+
+/**
+ * Comandar um vendedor exige as duas coisas: papel para isso e acesso à loja
+ * dele. Supervisor de uma loja não mexe na fila de outra.
+ */
+export function canManageSeller(actor: Actor, sellerId: string, storeId?: string) {
+  if (storeId !== undefined && !canAccessStore(actor, storeId)) return false;
+
   return canSuperviseQueue(actor) || (actor.sellerId !== null && actor.sellerId === sellerId);
 }
 

@@ -17,16 +17,22 @@ export type DashboardMetrics = {
   queued: number;
 };
 
-export async function loadSellerViews(actor: Actor | null): Promise<SellerView[]> {
+/**
+ * Vendedores de uma loja. Sem loja ativa a lista é vazia de propósito: é o que
+ * um supervisor sem vínculo deve ver, e nunca a operação inteira.
+ */
+export async function loadSellerViews(actor: Actor | null, storeId: string | null): Promise<SellerView[]> {
+  if (!storeId) return [];
+
   const { from, to } = operationDayRange(new Date());
 
   const [sellers, { bySeller }] = await Promise.all([
     prisma.seller.findMany({
-      where: { active: true },
+      where: { active: true, storeId },
       orderBy: [{ queuePosition: "asc" }, { name: "asc" }],
       include: SELLER_VIEW_QUERY,
     }),
-    loadOperationStats(from, to),
+    loadOperationStats(from, to, storeId),
   ]);
 
   return sellers.map((seller) => toSellerView(seller, bySeller, actor));
@@ -39,11 +45,17 @@ export async function loadSellerViews(actor: Actor | null): Promise<SellerView[]
  *
  * Situação na fila e horário continuam sendo o agora: são estado, não histórico.
  */
-export async function loadDashboardSellers(actor: Actor | null, range: DateRange): Promise<SellerView[]> {
-  const { bySeller } = await loadOperationStats(range.from, range.to);
+export async function loadDashboardSellers(
+  actor: Actor | null,
+  range: DateRange,
+  storeId: string | null,
+): Promise<SellerView[]> {
+  if (!storeId) return [];
+
+  const { bySeller } = await loadOperationStats(range.from, range.to, storeId);
 
   const sellers = await prisma.seller.findMany({
-    where: { OR: [{ active: true }, { id: { in: [...bySeller.keys()] } }] },
+    where: { storeId, OR: [{ active: true }, { id: { in: [...bySeller.keys()] } }] },
     orderBy: [{ queuePosition: "asc" }, { name: "asc" }],
     include: SELLER_VIEW_QUERY,
   });
@@ -52,16 +64,20 @@ export async function loadDashboardSellers(actor: Actor | null, range: DateRange
 }
 
 /**
- * `inService` e `queued` são sempre o estado atual da loja, mesmo com um
+ * `inService` e `queued` são sempre o estado atual da loja ativa, mesmo com um
  * período passado selecionado: não existe "quem estava em atendimento" como
  * número de fechamento, e o menu lateral usa esse contador.
  */
-export async function loadDashboardMetrics(range: DateRange, previousRange: DateRange): Promise<DashboardMetrics> {
+export async function loadDashboardMetrics(
+  range: DateRange,
+  previousRange: DateRange,
+  storeId: string | null,
+): Promise<DashboardMetrics> {
   const [current, previous, inService, queued] = await Promise.all([
-    loadOperationStats(range.from, range.to),
-    loadOperationStats(previousRange.from, previousRange.to),
-    prisma.seller.count({ where: { active: true, queueStatus: "IN_SERVICE" } }),
-    prisma.seller.count({ where: { active: true, queueStatus: "QUEUED" } }),
+    loadOperationStats(range.from, range.to, storeId),
+    loadOperationStats(previousRange.from, previousRange.to, storeId),
+    storeId ? prisma.seller.count({ where: { storeId, active: true, queueStatus: "IN_SERVICE" } }) : 0,
+    storeId ? prisma.seller.count({ where: { storeId, active: true, queueStatus: "QUEUED" } }) : 0,
   ]);
 
   return {
