@@ -4,6 +4,7 @@ import { getActor } from "@/lib/auth";
 import { canManageSeller } from "@/lib/authz";
 import { badRequest, forbidden, notFound, passwordChangeRequired, readJson, unauthorized } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
+import { lockStoreQueue } from "@/lib/queue-db";
 
 export const dynamic = "force-dynamic";
 
@@ -51,6 +52,8 @@ export async function PATCH(request: Request) {
   const concludedAt = new Date();
 
   const position = await prisma.$transaction(async (tx) => {
+    await lockStoreQueue(tx, atendimento.storeId);
+
     await tx.atendimento.update({
       where: { id: atendimento.id },
       data: {

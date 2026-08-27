@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
-import { auditActor, recordAudit } from "@/lib/audit-log";
-import { getActor } from "@/lib/auth";
+import { auditActor, recordAudit, recordAuditBatch } from "@/lib/audit-log";
+import { getActor, type SessionUser } from "@/lib/auth";
 import { canManageSeller, canSuperviseQueue } from "@/lib/authz";
 import { badRequest, conflict, forbidden, notFound, passwordChangeRequired, readJson, unauthorized } from "@/lib/http";
 import { loadSellerViews } from "@/lib/dashboard-data";
 import { prisma } from "@/lib/prisma";
-import { nextQueuePosition, resequenceQueue } from "@/lib/queue-db";
-import { activeStoreId } from "@/lib/stores";
+import { lockStoreQueue, nextQueuePosition, resequenceQueue } from "@/lib/queue-db";
+import { loadStoreContext } from "@/lib/stores";
 import {
   isQueueOperation,
   isQueueWideOperation,
@@ -35,7 +35,9 @@ export async function GET() {
   if (!session) return unauthorized();
   if (session.user.mustChangePassword) return passwordChangeRequired();
 
-  return NextResponse.json(await loadSellerViews(session.actor, await activeStoreId(session.user)));
+  const { active } = await loadStoreContext(session.user);
+
+  return NextResponse.json(await loadSellerViews(session.actor, active?.id ?? null));
 }
 
 export async function PATCH(request: Request) {
@@ -95,6 +97,8 @@ export async function PATCH(request: Request) {
   const { transition } = plan;
 
   const position = await prisma.$transaction(async (tx) => {
+    await lockStoreQueue(tx, seller.storeId);
+
     const queuePosition = transition.status === "QUEUED" ? await nextQueuePosition(tx, seller.storeId) : null;
 
     await tx.seller.update({
@@ -144,17 +148,24 @@ export async function PATCH(request: Request) {
   return NextResponse.json({ ok: true });
 }
 
-/** Loja aberta na tela, com o nome que vai para a trilha. */
-async function currentStore(user: Parameters<typeof activeStoreId>[0]): Promise<Store | null> {
-  const id = await activeStoreId(user);
-  if (!id) return null;
+/**
+ * Loja aberta na tela, com o nome que vai para a trilha. Vem do contexto, que
+ * já traz id e nome — buscar de novo no banco só para ler o nome era uma
+ * consulta a mais por operação de fila.
+ */
+async function currentStore(user: SessionUser): Promise<Store | null> {
+  const { active } = await loadStoreContext(user);
 
-  return prisma.store.findUnique({ where: { id }, select: { id: true, name: true } });
+  return active ? { id: active.id, name: active.name } : null;
 }
 
 /** Chama o primeiro da fila. A escolha e o início acontecem na mesma transação. */
 async function startNext(performedBy: string, actor: AuditActor, store: Store) {
   const started = await prisma.$transaction(async (tx) => {
+    // Trava antes de escolher: sem ela, dois supervisores chamando ao mesmo
+    // tempo escolhem o mesmo vendedor e abrem dois atendimentos para ele.
+    await lockStoreQueue(tx, store.id);
+
     const next = await tx.seller.findFirst({
       where: { storeId: store.id, queueStatus: "QUEUED", active: true },
       orderBy: [{ queuePosition: "asc" }, { updatedAt: "asc" }],
@@ -190,6 +201,8 @@ async function startNext(performedBy: string, actor: AuditActor, store: Store) {
  */
 async function endShiftAll(performedBy: string, actor: AuditActor, store: Store) {
   const encerrados = await prisma.$transaction(async (tx) => {
+    await lockStoreQueue(tx, store.id);
+
     const queued = await tx.seller.findMany({
       where: { storeId: store.id, queueStatus: "QUEUED" },
       select: { id: true, name: true, queuePosition: true },
@@ -209,15 +222,16 @@ async function endShiftAll(performedBy: string, actor: AuditActor, store: Store)
   });
 
   // Uma linha por vendedor: a trilha precisa dizer quem saiu, não só quantos.
-  for (const seller of encerrados) {
-    await recordAudit({
-      action: "ENDED_SHIFT",
+  // Em lote, porém: são N linhas de um comando só, e não N comandos.
+  await recordAuditBatch(
+    encerrados.map((seller) => ({
+      action: "ENDED_SHIFT" as const,
       actor,
       target: { id: seller.id, name: seller.name },
       store,
       details: { motivo: "encerrar_dia", posicaoAnterior: seller.queuePosition, origem: "encerrar_dia_de_todos" },
-    });
-  }
+    })),
+  );
 
   return NextResponse.json({ ok: true, count: encerrados.length });
 }
@@ -232,6 +246,8 @@ async function reorderHandler(
   if (!Number.isInteger(targetIndex)) return badRequest("Informe a nova posição na fila.");
 
   const moved = await prisma.$transaction(async (tx) => {
+    await lockStoreQueue(tx, seller.storeId);
+
     const queued = await tx.seller.findMany({
       where: { storeId: seller.storeId, queueStatus: "QUEUED" },
       orderBy: [{ queuePosition: "asc" }, { updatedAt: "asc" }],

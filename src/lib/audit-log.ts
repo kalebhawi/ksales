@@ -5,8 +5,8 @@ import {
   DEFAULT_AUDIT_PAGE_SIZE,
   auditDateFromFileName,
   auditFileName,
+  createAuditPager,
   matchesAuditSearch,
-  paginateAudit,
   parseAuditLine,
   type AuditAction,
   type AuditActor,
@@ -58,14 +58,24 @@ export type AuditInput = {
  * devolver erro faria o usuário repetir uma operação que já valeu. A falha vai
  * para o log do servidor, que é onde ela precisa ser vista.
  */
-export async function recordAudit({
-  action,
-  actor,
-  target = null,
-  store = null,
-  details = {},
-  at = new Date(),
-}: AuditInput) {
+/**
+ * O diretório é criado uma vez por processo, e não a cada linha: encerrar o dia
+ * de uma equipe inteira grava uma linha por vendedor, e cada uma repetia o
+ * `mkdir`. Se falhar, a promessa é descartada para a próxima gravação tentar de
+ * novo em vez de herdar o erro para sempre.
+ */
+let logDir: Promise<unknown> | null = null;
+
+function ensureLogDir() {
+  logDir ??= mkdir(AUDIT_LOG_DIR, { recursive: true }).catch((error) => {
+    logDir = null;
+    throw error;
+  });
+
+  return logDir;
+}
+
+function buildEntry({ action, actor, target = null, store = null, details = {}, at = new Date() }: AuditInput) {
   const entry: AuditEntry = {
     timestamp: formatOperationTimestamp(at),
     action,
@@ -76,32 +86,71 @@ export async function recordAudit({
     details,
   };
 
+  return { entry, day: toYmd(operationDateParts(at)) };
+}
+
+export async function recordAudit(input: AuditInput) {
+  const { entry, day } = buildEntry(input);
+
   try {
-    await mkdir(AUDIT_LOG_DIR, { recursive: true });
-    await appendFile(auditFilePath(toYmd(operationDateParts(at))), `${JSON.stringify(entry)}\n`, "utf8");
+    await ensureLogDir();
+    await appendFile(auditFilePath(day), `${JSON.stringify(entry)}\n`, "utf8");
   } catch (error) {
-    console.error("[auditoria] não foi possível gravar a linha", { action, error });
+    console.error("[auditoria] não foi possível gravar a linha", { action: input.action, error });
   }
 }
 
-/** Várias linhas do mesmo evento em lote (encerrar o dia de todos, por exemplo). */
-export async function recordAuditBatch(entries: AuditInput[]) {
-  for (const entry of entries) await recordAudit(entry);
+/**
+ * Várias linhas de uma vez — encerrar o dia de uma equipe inteira, por exemplo.
+ *
+ * Uma gravação por dia de operação em vez de uma por linha: antes eram N
+ * chamadas sequenciais ao disco para registrar um único comando. Agrupa por dia
+ * porque um lote pode atravessar a virada da meia-noite.
+ */
+export async function recordAuditBatch(inputs: AuditInput[]) {
+  if (inputs.length === 0) return;
+
+  const byDay = new Map<string, string[]>();
+
+  for (const input of inputs) {
+    const { entry, day } = buildEntry(input);
+    const lines = byDay.get(day) ?? [];
+
+    lines.push(JSON.stringify(entry));
+    byDay.set(day, lines);
+  }
+
+  try {
+    await ensureLogDir();
+
+    for (const [day, lines] of byDay) {
+      await appendFile(auditFilePath(day), `${lines.join("\n")}\n`, "utf8");
+    }
+  } catch (error) {
+    console.error("[auditoria] não foi possível gravar o lote", { linhas: inputs.length, error });
+  }
 }
 
 export function auditFilePath(date: string) {
   return path.join(AUDIT_LOG_DIR, auditFileName(date));
 }
 
-export type AuditFileInfo = {
+export type AuditDayInfo = {
   date: string;
   fileName: string;
   bytes: number;
+};
+
+export type AuditFileInfo = AuditDayInfo & {
   entries: number;
 };
 
-/** Dias disponíveis no diretório, do mais recente para o mais antigo. */
-export async function listAuditFiles(): Promise<AuditFileInfo[]> {
+/**
+ * Dias disponíveis, do mais recente para o mais antigo, sem abrir arquivo
+ * nenhum. É o que basta para escolher o que ler — e o que evita varrer o
+ * diretório inteiro para responder a consulta de um dia só.
+ */
+export async function listAuditDays(): Promise<AuditDayInfo[]> {
   let names: string[];
 
   try {
@@ -111,7 +160,7 @@ export async function listAuditFiles(): Promise<AuditFileInfo[]> {
     return [];
   }
 
-  const files: AuditFileInfo[] = [];
+  const days: AuditDayInfo[] = [];
 
   for (const name of names) {
     const date = auditDateFromFileName(name);
@@ -121,20 +170,50 @@ export async function listAuditFiles(): Promise<AuditFileInfo[]> {
       const info = await stat(path.join(AUDIT_LOG_DIR, name));
       if (!info.isFile()) continue;
 
-      files.push({ date, fileName: name, bytes: info.size, entries: await countEntries(name) });
+      days.push({ date, fileName: name, bytes: info.size });
     } catch {
       continue;
     }
   }
 
-  return files.sort((a, b) => b.date.localeCompare(a.date));
+  return days.sort((a, b) => b.date.localeCompare(a.date));
 }
 
+/**
+ * O mesmo, com quantas linhas cada dia tem. Só para a lista de download, que
+ * exibe esse número: contar exige abrir o arquivo, e é a parte cara.
+ */
+export async function listAuditFiles(): Promise<AuditFileInfo[]> {
+  const days = await listAuditDays();
+  const files: AuditFileInfo[] = [];
+
+  for (const day of days) {
+    files.push({ ...day, entries: await countEntries(day.fileName) });
+  }
+
+  return files;
+}
+
+/**
+ * Conta as quebras de linha no buffer, sem transformar o arquivo inteiro em
+ * string: decodificar dezenas de MB em UTF-8 era o grosso do custo, e o número
+ * é o mesmo, porque toda linha gravada termina em quebra.
+ */
 async function countEntries(fileName: string) {
-  const content = await readFile(path.join(AUDIT_LOG_DIR, fileName), "utf8");
+  const buffer = await readFile(path.join(AUDIT_LOG_DIR, fileName));
+  let lines = 0;
 
-  return content.split("\n").filter((line) => line.trim()).length;
+  // `indexOf` do Buffer é busca nativa; varrer byte a byte em JavaScript custa
+  // ordens de grandeza mais em arquivos de dezenas de MB.
+  for (let at = buffer.indexOf(NEWLINE); at !== -1; at = buffer.indexOf(NEWLINE, at + 1)) {
+    lines += 1;
+  }
+
+  return lines;
 }
+
+const NEWLINE = 10;
+
 
 /** Conteúdo bruto de um dia, ou `null` se aquele dia não tem arquivo. */
 export async function readAuditFile(date: string): Promise<string | null> {
@@ -196,27 +275,37 @@ const EMPTY_RESULT: AuditEntriesResult = {
  * inteiro para a tela mostrar 25 linhas.
  */
 export async function queryAuditEntries(input: AuditQueryInput = {}): Promise<AuditEntriesResult> {
-  const files = await listAuditFiles();
-  if (files.length === 0) return EMPTY_RESULT;
+  const available = await listAuditDays();
+  if (available.length === 0) return EMPTY_RESULT;
 
   const perPage = input.perPage ?? DEFAULT_AUDIT_PAGE_SIZE;
-  const latest = files[0].date;
-  const earliest = files[files.length - 1].date;
+  const latest = available[0].date;
+  const earliest = available[available.length - 1].date;
 
   // Sem filtro nenhum, o dia mais recente — é o que alguém abre a tela querendo ver.
   const requestedFrom = input.from ?? (input.to ? earliest : latest);
   const requestedTo = input.to ?? (input.from ? latest : latest);
   const [from, to] = requestedFrom <= requestedTo ? [requestedFrom, requestedTo] : [requestedTo, requestedFrom];
 
-  const inRange = files.filter((file) => file.date >= from && file.date <= to);
+  const inRange = available.filter((day) => day.date >= from && day.date <= to);
   const days = inRange.slice(0, MAX_QUERY_DAYS);
 
-  const entries: AuditEntry[] = [];
+  const pager = createAuditPager<AuditEntry>(input.page ?? 1, perPage);
+  const byAction = new Map<AuditAction, number>();
+  // As lojas saem das próprias linhas, não do banco: uma loja apagada continua
+  // aparecendo no filtro enquanto houver rastro dela na trilha.
+  const byStore = new Map<string, { name: string; count: number }>();
   let corrupted = 0;
 
-  for (const file of days) {
-    const content = await readAuditFile(file.date);
+  // Um dia por vez, do mais recente para o mais antigo. Cada arquivo cobre um
+  // dia de operação, e dias não se sobrepõem — ordenar dentro do dia e
+  // percorrer os dias em ordem dá o mesmo resultado de ordenar tudo junto, sem
+  // precisar de tudo junto na memória.
+  for (const day of days) {
+    const content = await readAuditFile(day.date);
     if (!content) continue;
+
+    const entries: AuditEntry[] = [];
 
     for (const line of content.split(/\r?\n/)) {
       if (!line.trim()) continue;
@@ -225,34 +314,32 @@ export async function queryAuditEntries(input: AuditQueryInput = {}): Promise<Au
       if (entry) entries.push(entry);
       else corrupted += 1;
     }
+
+    // Por instante, não por texto: numa virada de horário de verão dois
+    // deslocamentos convivem no mesmo arquivo.
+    entries.sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp));
+
+    for (const entry of entries) {
+      byAction.set(entry.action, (byAction.get(entry.action) ?? 0) + 1);
+
+      if (entry.store) {
+        const current = byStore.get(entry.store.id);
+        byStore.set(entry.store.id, { name: entry.store.name, count: (current?.count ?? 0) + 1 });
+      }
+
+      if (input.action && entry.action !== input.action) continue;
+      if (input.store && entry.store?.id !== input.store) continue;
+      if (!matchesAuditSearch(entry, input.search ?? "")) continue;
+
+      pager.push(entry);
+    }
   }
-
-  // Mais recente primeiro. Por instante, não por string: numa virada de horário
-  // de verão dois deslocamentos convivem no mesmo arquivo.
-  entries.sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp));
-
-  const byAction = new Map<AuditAction, number>();
-  for (const entry of entries) byAction.set(entry.action, (byAction.get(entry.action) ?? 0) + 1);
-
-  // As lojas saem das próprias linhas, não do banco: uma loja apagada continua
-  // aparecendo no filtro enquanto houver rastro dela na trilha.
-  const byStore = new Map<string, { name: string; count: number }>();
-  for (const entry of entries) {
-    if (!entry.store) continue;
-    const current = byStore.get(entry.store.id);
-    byStore.set(entry.store.id, { name: entry.store.name, count: (current?.count ?? 0) + 1 });
-  }
-
-  const filtered = entries
-    .filter((entry) => !input.action || entry.action === input.action)
-    .filter((entry) => !input.store || entry.store?.id === input.store)
-    .filter((entry) => matchesAuditSearch(entry, input.search ?? ""));
 
   return {
-    ...paginateAudit(filtered, input.page ?? 1, perPage),
+    ...pager.result(),
     from,
     to,
-    days: days.map((file) => file.date),
+    days: days.map((day) => day.date),
     daysLeftOut: inRange.length - days.length,
     corrupted,
     actions: [...byAction.entries()]

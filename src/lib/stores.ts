@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { cookies } from "next/headers";
 import type { SessionUser } from "@/lib/auth";
 import { BASE_PATH } from "@/lib/base-path";
@@ -21,23 +22,34 @@ export type StoreContext = {
 
 const STORE_FIELDS = { id: true, name: true, active: true } as const;
 
-export async function allowedStores(user: Pick<SessionUser, "isAdmin" | "id" | "sellerStoreId">): Promise<StoreOption[]> {
-  if (user.isAdmin) {
+/**
+ * `cache` deduplica dentro da mesma requisição, igual a `getSessionUser`: a
+ * barra lateral e a página pedem a mesma coisa, e sem isto seriam duas
+ * consultas idênticas em toda tela.
+ *
+ * A chave são valores primitivos, e não o objeto da sessão, para o acerto não
+ * depender de quem chama por acaso ter a mesma referência em mãos.
+ */
+const storesFor = cache(async (userId: string, isAdmin: boolean, sellerStoreId: string | null) => {
+  if (isAdmin) {
     return sortStores(await prisma.store.findMany({ where: { active: true }, select: STORE_FIELDS }));
   }
 
   const stores = await prisma.store.findMany({
     where: {
       active: true,
-      OR: [
-        { users: { some: { userId: user.id } } },
-        ...(user.sellerStoreId ? [{ id: user.sellerStoreId }] : []),
-      ],
+      OR: [{ users: { some: { userId } } }, ...(sellerStoreId ? [{ id: sellerStoreId }] : [])],
     },
     select: STORE_FIELDS,
   });
 
   return sortStores(stores);
+});
+
+export async function allowedStores(
+  user: Pick<SessionUser, "isAdmin" | "id" | "sellerStoreId">,
+): Promise<StoreOption[]> {
+  return storesFor(user.id, user.isAdmin, user.sellerStoreId);
 }
 
 /**

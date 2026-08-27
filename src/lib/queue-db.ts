@@ -10,6 +10,20 @@ import type { prisma } from "@/lib/prisma";
  */
 export type Tx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
 
+/**
+ * Serializa quem mexe na fila de uma loja, pelo tempo da transação.
+ *
+ * Sem isto, duas transações simultâneas leem o mesmo `max(queuePosition)` e
+ * gravam a mesma posição — reproduzível com dois cliques ao mesmo tempo. O
+ * isolamento padrão do PostgreSQL (READ COMMITTED) não protege contra isso.
+ *
+ * A trava é na linha da loja: filas de lojas diferentes não se bloqueiam, e
+ * como toda transação trava a mesma linha primeiro, não há ciclo de espera.
+ */
+export async function lockStoreQueue(tx: Tx, storeId: string) {
+  await tx.$queryRaw`SELECT id FROM stores WHERE id = ${storeId} FOR UPDATE`;
+}
+
 /** Fim da fila da loja. */
 export async function nextQueuePosition(tx: Tx, storeId: string) {
   const last = await tx.seller.findFirst({

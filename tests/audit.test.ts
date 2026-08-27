@@ -15,7 +15,7 @@ import {
   isAuditDate,
   isAuditPageSize,
   matchesAuditSearch,
-  paginateAudit,
+  createAuditPager,
   parseAuditLine,
   type AuditEntry,
 } from "../src/lib/audit-events";
@@ -198,17 +198,44 @@ describe("auditoria: busca e paginação", () => {
     assert.equal(matchesAuditSearch(entrada({}), "   "), true);
   });
 
-  it("pagina e prende a página na faixa válida", () => {
-    const itens = Array.from({ length: 57 }, (_, index) => index + 1);
+  /** O pager recebe as linhas em fluxo e guarda só a página pedida. */
+  function paginar(quantidade: number, page: number, perPage = 25) {
+    const pager = createAuditPager<number>(page, perPage);
+    for (let i = 1; i <= quantidade; i += 1) pager.push(i);
 
-    assert.deepEqual(paginateAudit(itens, 1, 25).items.slice(0, 2), [1, 2]);
-    assert.equal(paginateAudit(itens, 1, 25).pages, 3);
-    assert.equal(paginateAudit(itens, 3, 25).items.length, 7);
+    return pager.result();
+  }
+
+  it("pagina e prende a página na faixa válida", () => {
+    assert.deepEqual(paginar(57, 1).items.slice(0, 2), [1, 2]);
+    assert.equal(paginar(57, 1).pages, 3);
+    assert.deepEqual(paginar(57, 2).items[0], 26);
+    assert.equal(paginar(57, 3).items.length, 7);
 
     // `?pagina=999` cai na última em vez de devolver tela vazia.
-    assert.equal(paginateAudit(itens, 999, 25).page, 3);
-    assert.equal(paginateAudit(itens, 0, 25).page, 1);
-    assert.equal(paginateAudit([], 1, 25).pages, 1);
+    assert.equal(paginar(57, 999).page, 3);
+    assert.deepEqual(paginar(57, 999).items, [51, 52, 53, 54, 55, 56, 57]);
+    assert.equal(paginar(57, 0).page, 1);
+    assert.equal(paginar(0, 1).pages, 1);
+    assert.deepEqual(paginar(0, 999).items, []);
+  });
+
+  /** A memória não pode crescer com o período consultado, só com a página. */
+  it("guarda no máximo duas páginas, por maior que seja o período", () => {
+    const pager = createAuditPager<number>(1, 25);
+    for (let i = 1; i <= 100_000; i += 1) pager.push(i);
+
+    const resultado = pager.result();
+
+    assert.equal(resultado.total, 100_000);
+    assert.equal(resultado.items.length, 25);
+    assert.deepEqual(resultado.items[0], 1);
+  });
+
+  it("página exata no fim não confunde com página além do fim", () => {
+    assert.deepEqual(paginar(50, 2).items[0], 26);
+    assert.equal(paginar(50, 2).items.length, 25);
+    assert.deepEqual(paginar(50, 3).items[0], 26);
   });
 
   it("aceita só os tamanhos de página oferecidos na tela", () => {

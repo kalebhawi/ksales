@@ -1,12 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import {
-  MAX_STORE_NAME,
-  pickActiveStore,
-  sortStores,
-  storeCountLabel,
-  validateStoreName,
-} from "../src/lib/store-rules";
+import { MAX_STORE_NAME, pickActiveStore, sortStores, validateStoreName } from "../src/lib/store-rules";
 
 const loja1 = { id: "s1", name: "Loja 1", active: true };
 const loja2 = { id: "s2", name: "Loja 2", active: true };
@@ -61,11 +55,5 @@ describe("apresentação", () => {
     sortStores(original);
 
     assert.deepEqual(original.map((store) => store.name), ["B", "A"]);
-  });
-
-  it("conta lojas com plural certo", () => {
-    assert.equal(storeCountLabel(0), "Nenhuma loja");
-    assert.equal(storeCountLabel(1), "1 loja");
-    assert.equal(storeCountLabel(3), "3 lojas");
   });
 });

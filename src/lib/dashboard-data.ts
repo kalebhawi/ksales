@@ -4,7 +4,7 @@ import type { DateRange } from "@/lib/period";
 import { prisma } from "@/lib/prisma";
 import { SELLER_VIEW_QUERY, toSellerView, type SellerView } from "@/lib/seller-view";
 import { relativeChange } from "@/lib/format";
-import { loadOperationStats } from "@/lib/stats";
+import { loadOperationStats, type OperationTotals, type SellerStats } from "@/lib/stats";
 
 export type DashboardMetrics = {
   sales: number;
@@ -39,21 +39,17 @@ export async function loadSellerViews(actor: Actor | null, storeId: string | nul
 }
 
 /**
- * Vendedores com os números do período escolhido. Diferente de
+ * Vendedores com os números já apurados do período. Diferente de
  * `loadSellerViews`, inclui quem foi desativado depois mas atendeu dentro do
  * período — senão o ranking de um mês fechado perderia gente sem avisar.
  *
  * Situação na fila e horário continuam sendo o agora: são estado, não histórico.
  */
-export async function loadDashboardSellers(
+async function sellersForPeriod(
   actor: Actor | null,
-  range: DateRange,
-  storeId: string | null,
+  bySeller: Map<string, SellerStats>,
+  storeId: string,
 ): Promise<SellerView[]> {
-  if (!storeId) return [];
-
-  const { bySeller } = await loadOperationStats(range.from, range.to, storeId);
-
   const sellers = await prisma.seller.findMany({
     where: { storeId, OR: [{ active: true }, { id: { in: [...bySeller.keys()] } }] },
     orderBy: [{ queuePosition: "asc" }, { name: "asc" }],
@@ -61,6 +57,31 @@ export async function loadDashboardSellers(
   });
 
   return sellers.map((seller) => toSellerView(seller, bySeller, actor));
+}
+
+/**
+ * Tudo o que a visão geral precisa, com a apuração do período feita **uma vez**.
+ *
+ * Antes eram duas funções independentes, e cada uma apurava o mesmo período por
+ * conta própria: a agregação mais cara da tela rodava em dobro a cada carga.
+ */
+export async function loadDashboard(
+  actor: Actor | null,
+  range: DateRange,
+  previousRange: DateRange,
+  storeId: string | null,
+): Promise<{ sellers: SellerView[]; metrics: DashboardMetrics }> {
+  const [current, previous] = await Promise.all([
+    loadOperationStats(range.from, range.to, storeId),
+    loadOperationStats(previousRange.from, previousRange.to, storeId),
+  ]);
+
+  const [sellers, counters] = await Promise.all([
+    storeId ? sellersForPeriod(actor, current.bySeller, storeId) : [],
+    liveCounters(storeId),
+  ]);
+
+  return { sellers, metrics: buildMetrics(current.totals, previous.totals, counters) };
 }
 
 /**
@@ -73,21 +94,38 @@ export async function loadDashboardMetrics(
   previousRange: DateRange,
   storeId: string | null,
 ): Promise<DashboardMetrics> {
-  const [current, previous, inService, queued] = await Promise.all([
+  const [current, previous, counters] = await Promise.all([
     loadOperationStats(range.from, range.to, storeId),
     loadOperationStats(previousRange.from, previousRange.to, storeId),
-    storeId ? prisma.seller.count({ where: { storeId, active: true, queueStatus: "IN_SERVICE" } }) : 0,
-    storeId ? prisma.seller.count({ where: { storeId, active: true, queueStatus: "QUEUED" } }) : 0,
+    liveCounters(storeId),
   ]);
 
+  return buildMetrics(current.totals, previous.totals, counters);
+}
+
+async function liveCounters(storeId: string | null) {
+  if (!storeId) return { inService: 0, queued: 0 };
+
+  const [inService, queued] = await Promise.all([
+    prisma.seller.count({ where: { storeId, active: true, queueStatus: "IN_SERVICE" } }),
+    prisma.seller.count({ where: { storeId, active: true, queueStatus: "QUEUED" } }),
+  ]);
+
+  return { inService, queued };
+}
+
+function buildMetrics(
+  current: OperationTotals,
+  previous: OperationTotals,
+  counters: { inService: number; queued: number },
+): DashboardMetrics {
   return {
-    sales: current.totals.sales,
-    salesChange: relativeChange(current.totals.sales, previous.totals.sales),
-    conversion: current.totals.conversion,
-    conversionChange: relativeChange(current.totals.conversion, previous.totals.conversion),
-    calls: current.totals.calls,
-    callsChange: relativeChange(current.totals.calls, previous.totals.calls),
-    inService,
-    queued,
+    sales: current.sales,
+    salesChange: relativeChange(current.sales, previous.sales),
+    conversion: current.conversion,
+    conversionChange: relativeChange(current.conversion, previous.conversion),
+    calls: current.calls,
+    callsChange: relativeChange(current.calls, previous.calls),
+    ...counters,
   };
 }

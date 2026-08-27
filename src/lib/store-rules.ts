@@ -50,10 +50,3 @@ export function pickActiveStore<T extends { id: string }>(allowed: T[], requeste
   return allowed.find((store) => store.id === requested) ?? allowed[0];
 }
 
-/** Rótulo de quantas lojas alguém enxerga, para o cabeçalho da tela. */
-export function storeCountLabel(total: number) {
-  if (total === 0) return "Nenhuma loja";
-  if (total === 1) return "1 loja";
-
-  return `${total} lojas`;
-}

@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { getActor } from "@/lib/auth";
-import { loadDashboardMetrics, loadDashboardSellers } from "@/lib/dashboard-data";
+import { loadDashboard } from "@/lib/dashboard-data";
 import { formatOperationDate, operationDateParts } from "@/lib/operation-day";
 import { parsePeriod, resolvePeriod, toYmd } from "@/lib/period";
 import { activeStoreId } from "@/lib/stores";
@@ -25,10 +25,7 @@ export default async function Home({ searchParams }: PageProps<"/">) {
 
   const storeId = await activeStoreId(session.user);
 
-  const [sellers, metrics] = await Promise.all([
-    loadDashboardSellers(session.actor, period.range, storeId),
-    loadDashboardMetrics(period.range, period.previous, storeId),
-  ]);
+  const { sellers, metrics } = await loadDashboard(session.actor, period.range, period.previous, storeId);
 
   return (
     <AppShell user={session.user} section="overview" breadcrumb="Visão geral" queueCount={metrics.queued}>

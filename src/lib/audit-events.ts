@@ -225,6 +225,7 @@ export const AUDIT_DETAIL_LABELS: Record<string, string> = {
   nomeAnterior: "nome anterior",
   situacaoAnterior: "situação anterior",
   acessoRevogado: "acesso revogado",
+  atendimentoCancelado: "atendimento cancelado",
   tipo: "tipo",
   bytes: "bytes",
   loja: "loja",
@@ -356,11 +357,43 @@ export function isAuditPageSize(value: unknown): value is number {
 
 export type AuditPageResult<T> = { items: T[]; page: number; pages: number; total: number; perPage: number };
 
-/** Paginação com a página presa à faixa válida: `?pagina=999` cai na última. */
-export function paginateAudit<T>(items: T[], page: number, perPage: number): AuditPageResult<T> {
-  const pages = Math.max(1, Math.ceil(items.length / perPage));
-  const current = Math.min(Math.max(1, Math.trunc(page) || 1), pages);
-  const start = (current - 1) * perPage;
+/**
+ * Paginação em fluxo: recebe uma linha de cada vez e guarda só o que vai
+ * aparecer na tela.
+ *
+ * `paginateAudit` precisa da lista inteira na memória para depois recortar 25
+ * linhas dela — com meses de operação isso são dezenas de milhares de objetos
+ * vivos por requisição, num servidor pequeno. Aqui a memória fica presa em
+ * `2 × perPage`, independente do tamanho do período.
+ *
+ * O `tail` existe por causa do recorte à última página: quem pede `?pagina=999`
+ * quer o fim da lista, e o fim só se conhece depois de contar tudo.
+ */
+export function createAuditPager<T>(page: number, perPage: number) {
+  const requested = Math.min(Math.max(1, Math.trunc(page) || 1), Number.MAX_SAFE_INTEGER);
+  const start = (requested - 1) * perPage;
+  const window: T[] = [];
+  const tail: T[] = [];
+  let total = 0;
 
-  return { items: items.slice(start, start + perPage), page: current, pages, total: items.length, perPage };
+  return {
+    push(entry: T) {
+      if (total >= start && window.length < perPage) window.push(entry);
+      total += 1;
+
+      tail.push(entry);
+      if (tail.length > perPage) tail.shift();
+    },
+    result(): AuditPageResult<T> {
+      const pages = Math.max(1, Math.ceil(total / perPage));
+      const current = Math.min(requested, pages);
+
+      if (current === requested) return { items: window, page: current, pages, total, perPage };
+
+      // Pediu página além do fim: a última é o que sobrou no rabo.
+      const lastCount = total - (pages - 1) * perPage;
+
+      return { items: tail.slice(tail.length - lastCount), page: current, pages, total, perPage };
+    },
+  };
 }
