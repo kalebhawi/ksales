@@ -7,7 +7,8 @@ const SEM_COOKIE = false;
 
 describe("proxy: rotas públicas", () => {
   it("deixa passar o login e as APIs de sessão, com ou sem cookie", () => {
-    for (const rota of ["/login", "/api/auth/login", "/api/auth/logout"]) {
+    // O manifesto é buscado na tela de login, antes de haver sessão.
+    for (const rota of ["/login", "/manifest.webmanifest", "/api/auth/login", "/api/auth/logout"]) {
       assert.deepEqual(decideProxy(rota, SEM_COOKIE), { kind: "next" }, rota);
       assert.deepEqual(decideProxy(rota, COM_COOKIE), { kind: "next" }, rota);
     }

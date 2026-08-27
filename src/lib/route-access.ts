@@ -1,4 +1,10 @@
-export const PUBLIC_PAGES = ["/login"];
+/**
+ * O manifesto entra aqui porque o navegador o busca já na tela de login, antes
+ * de existir sessão: atrás do proxy ele voltava como redirecionamento e o
+ * atalho da tela inicial não carregava. Não há nada sigiloso nele — nome da
+ * aplicação, cores e ícones.
+ */
+export const PUBLIC_PAGES = ["/login", "/manifest.webmanifest"];
 export const PUBLIC_APIS = ["/api/auth/login", "/api/auth/logout"];
 
 export type ProxyDecision =

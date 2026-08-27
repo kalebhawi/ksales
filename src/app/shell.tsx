@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { Bell, ChevronRight, FileClock, LayoutDashboard, ListOrdered, ShieldCheck, Store, UserCircle, Users } from "lucide-react";
+import { FileClock, LayoutDashboard, ListOrdered, ShieldCheck, Store, UserCircle, Users } from "lucide-react";
 import { AccountMenu } from "./account-menu";
 import { AppLoadingProvider } from "./app-loading";
 import { NavHint } from "./nav-hint";
@@ -100,15 +100,9 @@ export async function AppShell({
       <main className="main-content">
         <header className="topbar">
           <div className="breadcrumb">
-            <span>Workspace</span>
-            <ChevronRight size={15} />
             <strong>{breadcrumb}</strong>
           </div>
           <div className="top-actions">
-            <button className="icon-button" aria-label="Notificações">
-              <Bell size={18} />
-              <i />
-            </button>
             <AccountMenu name={user.name} initials={initials} role={ROLE_LABELS[user.role]} photo={photo} />
           </div>
         </header>
